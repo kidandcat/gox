@@ -59,7 +59,10 @@ type PackageInfo struct {
 func (p *PackageInfo) AbsFiles() []string {
 	out := make([]string, len(p.GoFiles))
 	for i, name := range p.GoFiles {
-		out[i] = resolveFile(p.Dir, name)
+		out[i] = resolveFile(
+			/* dir */ p.Dir,
+			/* name */ name,
+		)
 	}
 	return out
 }
@@ -176,7 +179,10 @@ func LoadPackage(info *PackageInfo) (*Package, error) {
 	fset := token.NewFileSet()
 	files := make([]*ast.File, 0, len(info.GoFiles))
 	for _, name := range info.GoFiles {
-		path := resolveFile(info.Dir, name)
+		path := resolveFile(
+			/* dir */ info.Dir,
+			/* name */ name,
+		)
 		f, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr != nil {
 			return nil, fmt.Errorf("parse %s: %w", path, parseErr)
