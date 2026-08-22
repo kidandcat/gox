@@ -258,13 +258,5 @@ func unquoteString(lit string) (string, bool) {
 }
 
 func hasSafeIgnoreOnLine(fset *token.FileSet, file *ast.File, pos token.Pos) bool {
-	line := fset.Position(pos).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			if analyzer.HasAnnotation(cg, analyzer.AnnSafeIgnore) {
-				return true
-			}
-		}
-	}
-	return false
+	return analyzer.HasLineAnnotation(fset, file, pos, analyzer.AnnSafeIgnore)
 }

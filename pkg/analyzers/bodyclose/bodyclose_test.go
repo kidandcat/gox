@@ -11,12 +11,47 @@ func TestBodyClose_leak(t *testing.T) {
 	const src = `package p
 import "net/http"
 func _() {
-	resp, _ := http.Get("http://x") // safe-ignore: testing body leak
+	resp, err := http.Get("http://x")
+	if err != nil { return }
 	_ = resp
 }`
 	issues := analyzertest.Run(t, get(), src)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+}
+
+func TestBodyClose_safeIgnore(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	resp, err := http.Get("http://x") // safe-ignore: probe — body discarded by transport
+	if err != nil { return }
+	_ = resp
+}`
+	for _, is := range analyzertest.Run(t, get(), src) {
+		if is.Analyzer == "bodyclose" {
+			t.Fatalf("annotation should suppress bodyclose: %v", is.Message)
+		}
+	}
+}
+
+func TestBodyClose_emptyReasonDoesNotSuppress(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	resp, err := http.Get("http://x") // safe-ignore:
+	if err != nil { return }
+	_ = resp
+}`
+	got := 0
+	for _, is := range analyzertest.Run(t, get(), src) {
+		if is.Analyzer == "bodyclose" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("empty reason must not suppress, got %d bodyclose issues", got)
 	}
 }
 

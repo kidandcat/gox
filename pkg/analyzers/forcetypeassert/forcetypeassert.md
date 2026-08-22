@@ -4,15 +4,18 @@ Forbids type assertions without the comma-ok form.
 
 ## What it catches
 
-`x := v.(T)` panics at runtime if `v` is not a `T`. The two-value form
-`x, ok := v.(T)` returns the zero value and a boolean — caller-controlled. The
-panic form is almost never what you want in production code, but LLMs frequently
-write it because it's shorter.
+`x := v.(T)` panics at runtime if `v` is not a `T`. `x, _ := v.(T)` does not
+panic — it silently yields the zero value of `T`, which is the same class of
+bug with a quieter failure mode. The two-value form `x, ok := v.(T)` returns
+the zero value and a boolean — caller-controlled. The unchecked forms are
+almost never what you want in production code, but LLMs frequently write them
+because they are shorter.
 
 ## Bad
 
 ```go
 s := v.(string)
+s, _ := v.(string)
 client := ctx.Value(key).(*Client)
 ```
 

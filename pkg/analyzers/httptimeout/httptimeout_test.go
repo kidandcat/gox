@@ -211,6 +211,122 @@ func _() {
 	}
 }
 
+func TestDefaultClient_Do_NewRequestWithContext_OK(t *testing.T) {
+	const src = `package p
+import (
+	"context"
+	"net/http"
+)
+func _(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://x", nil)
+	if err != nil { return }
+	_, _ = http.DefaultClient.Do(req)
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 0 {
+		t.Fatalf("want 0 httptimeout issues for Do+NewRequestWithContext, got %d: %v", len(got), got)
+	}
+}
+
+func TestDefaultClient_Do_NewRequestStillFlagged(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	req, _ := http.NewRequest("GET", "http://x", nil)
+	_, _ = http.DefaultClient.Do(req)
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue for Do+NewRequest, got %d", len(got))
+	}
+}
+
+func TestVarClient(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	var c http.Client
+	_ = c
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue for var http.Client, got %d", len(got))
+	}
+}
+
+func TestNewClient(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	_ = new(http.Client)
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue for new(http.Client), got %d", len(got))
+	}
+}
+
+func TestServer_Empty(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	_ = &http.Server{}
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue for empty http.Server, got %d", len(got))
+	}
+}
+
+func TestServer_OnlyReadHeader(t *testing.T) {
+	const src = `package p
+import (
+	"net/http"
+	"time"
+)
+func _() {
+	_ = &http.Server{ReadHeaderTimeout: time.Second}
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue (WriteTimeout missing), got %d", len(got))
+	}
+}
+
+func TestServer_ZeroReadHeader(t *testing.T) {
+	const src = `package p
+import (
+	"net/http"
+	"time"
+)
+func _() {
+	_ = &http.Server{ReadHeaderTimeout: 0, WriteTimeout: time.Second}
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 1 {
+		t.Fatalf("want 1 httptimeout issue (ReadHeaderTimeout: 0), got %d", len(got))
+	}
+}
+
+func TestServer_BothSet_OK(t *testing.T) {
+	const src = `package p
+import (
+	"net/http"
+	"time"
+)
+func _() {
+	_ = &http.Server{ReadHeaderTimeout: time.Second, WriteTimeout: time.Second}
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 0 {
+		t.Fatalf("want 0 httptimeout issues, got %d: %v", len(got), got)
+	}
+}
+
+func TestAnnotation_SuppressesVarClient(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _() {
+	var c http.Client // timeout-ok: Timeout assigned from config below
+	_ = c
+}`
+	if got := onlyHTTPTimeout(analyzertest.Run(t, get(), src)); len(got) != 0 {
+		t.Fatalf("want annotation to suppress var client, got %d issues", len(got))
+	}
+}
+
 func TestNotNetHTTP_NotFlagged(t *testing.T) {
 	// A different package called `http` with a Get function should not trigger.
 	const src = `package p

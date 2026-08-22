@@ -151,6 +151,9 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 		if generated[i.Pos.Filename] {
 			return
 		}
+		if !info.ShouldReport(i.Pos.Filename) {
+			return
+		}
 		pkgIssues = append(pkgIssues, i)
 	}
 	pass := &Pass{

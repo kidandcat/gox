@@ -61,7 +61,7 @@ Bug tier (default):
 | `bodyclose` | `*http.Response.Body` left unclosed |
 | `contextcheck` | `context.Background()`/`TODO()` inside a function that already receives a `context.Context` |
 | `errorlint` | `==` / type-assert / `%s` on errors instead of `errors.Is` / `errors.As` / `%w` |
-| `httptimeout` | HTTP shortcut calls or `http.Client` literals with no `Timeout` set |
+| `httptimeout` | HTTP shortcut calls, zero-Timeout `http.Client` (`var`/`new`/literal), or `http.Server` missing `ReadHeaderTimeout`/`WriteTimeout` |
 
 Style tier (opt-in, `--all`):
 
@@ -85,7 +85,7 @@ after the colon — empty reasons are ignored.
 | `// any-ok: <why>` | Allow `any` / `interface{}` (`banany`) |
 | `// goroutine-ok: <why>` | Allow a fire-and-forget `go` statement (`goroutine`) |
 | `// exhaustive-ok: <why>` | Accept a `default:` case as covering missing variants (`exhaustive`) |
-| `// timeout-ok: <why>` | Allow an HTTP call or `http.Client` literal without a `Timeout` (`httptimeout`) |
+| `// timeout-ok: <why>` | Allow an HTTP call, zero-Timeout client, or `http.Server` literal without the required timeouts (`httptimeout`) |
 
 ## Rule reference
 
@@ -172,7 +172,7 @@ On a 442-package monorepo (~1800 .go files):
 | Warm run (full cache hit) | ~2.6s |
 
 The cache is per-package, keyed by file mtime+size and the analyzer set
-hash. It lives under `$XDG_CACHE_HOME/gox/v2` (or `~/.cache/gox/v2`).
+hash. It lives under `$XDG_CACHE_HOME/gox/v3` (or `~/.cache/gox/v3`).
 Pass `--no-cache` to disable.
 
 ## Output cap
@@ -248,7 +248,8 @@ production gate.
 ## Design notes
 
 - **Zero external dependencies.** Everything uses Go stdlib + a shell-out to
-  `go list -json`. No `golang.org/x/tools`, no third-party linter packages.
+  `go list -json -e -export -compiled -deps -test`. No `golang.org/x/tools`,
+  no third-party linter packages.
   Minimal maintenance: when a new Go release ships, there's nothing to
   update.
 - **Fail closed.** Every rule defaults to error. Opt-outs require an explicit
