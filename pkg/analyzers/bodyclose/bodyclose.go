@@ -38,7 +38,7 @@ func run(pass *analyzer.Pass) {
 			if !ok || fn.Body == nil {
 				return true
 			}
-			checkBlock(pass, fn.Body)
+			checkBlock(pass, file, fn.Body)
 			return true
 		})
 		// Also handle function literals at top-level (rare but possible).
@@ -47,13 +47,13 @@ func run(pass *analyzer.Pass) {
 			if !ok || fl.Body == nil {
 				return true
 			}
-			checkBlock(pass, fl.Body)
+			checkBlock(pass, file, fl.Body)
 			return true
 		})
 	}
 }
 
-func checkBlock(pass *analyzer.Pass, body *ast.BlockStmt) {
+func checkBlock(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
 	// Find every assignment introducing a *http.Response.
 	type respBind struct {
 		ident *ast.Ident
@@ -116,6 +116,9 @@ func checkBlock(pass *analyzer.Pass, body *ast.BlockStmt) {
 
 	// For each bind, scan the rest of the body for `X.Body.Close()`.
 	for _, b := range binds {
+		if analyzer.HasLineAnnotation(pass.Fset, file, b.ident.Pos(), analyzer.AnnSafeIgnore) {
+			continue
+		}
 		if hasBodyClose(body, b.ident.Name, pass.TypesInfo) {
 			continue
 		}
@@ -123,7 +126,7 @@ func checkBlock(pass *analyzer.Pass, body *ast.BlockStmt) {
 			Analyzer: "bodyclose",
 			Pos:      pass.Fset.Position(b.ident.Pos()),
 			Message:  "*http.Response Body is never closed",
-			Hint:     "add `defer " + b.ident.Name + ".Body.Close()` immediately after the call",
+			Hint:     "add `defer " + b.ident.Name + ".Body.Close()` immediately after the call, or annotate the assignment with `// safe-ignore: <reason>`",
 		})
 	}
 }

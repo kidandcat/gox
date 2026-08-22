@@ -85,3 +85,23 @@ func HasAnnotation(cg *ast.CommentGroup, prefix string) bool {
 	}
 	return false
 }
+
+// HasLineAnnotation reports whether any comment on the same source line as
+// pos carries the given prefix with a non-empty reason. This is the shared
+// opt-out check used by rules that honor // safe-ignore: (and similar)
+// annotations; empty reasons do not suppress.
+func HasLineAnnotation(fset *token.FileSet, file *ast.File, pos token.Pos, prefix string) bool {
+	if file == nil {
+		return false
+	}
+	line := fset.Position(pos).Line
+	for _, cg := range file.Comments {
+		if fset.Position(cg.Pos()).Line != line && fset.Position(cg.End()).Line != line {
+			continue
+		}
+		if HasAnnotation(cg, prefix) {
+			return true
+		}
+	}
+	return false
+}

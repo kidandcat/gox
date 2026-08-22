@@ -47,6 +47,9 @@ func run(pass *analyzer.Pass) {
 					return true
 				}
 				if isContextBackgroundOrTODO(pass, call) {
+					if analyzer.HasLineAnnotation(pass.Fset, file, call.Pos(), analyzer.AnnSafeIgnore) {
+						return true
+					}
 					pass.Report(analyzer.Issue{
 						Analyzer: "contextcheck",
 						Pos:      pass.Fset.Position(call.Pos()),

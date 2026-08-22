@@ -29,6 +29,27 @@ func _(ctx context.Context) {
 	analyzertest.AssertLines(t, issues, []int{5})
 }
 
+func TestContextCheck_safeIgnore(t *testing.T) {
+	const src = `package p
+import "context"
+func _(ctx context.Context) {
+	_ = ctx
+	_ = context.Background() // safe-ignore: detached cleanup must outlive request
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestContextCheck_emptyReasonDoesNotSuppress(t *testing.T) {
+	const src = `package p
+import "context"
+func _(ctx context.Context) {
+	_ = ctx
+	_ = context.Background() // safe-ignore:
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{5})
+}
+
 func TestContextCheck_noCtxParam_allowed(t *testing.T) {
 	const src = `package p
 import "context"

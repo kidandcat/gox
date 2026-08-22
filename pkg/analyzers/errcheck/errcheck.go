@@ -4,8 +4,15 @@
 // Caught patterns:
 //
 //	foo()              // foo returns error, value discarded
+//	defer foo()        // same, including defer f.Close()
+//	go foo()           // same; the goroutine's error is unrecoverable
 //	x := foo()         // foo returns (T, error), error component discarded
 //	_ = foo()          // explicit blank without // safe-ignore: annotation
+//
+// `defer f.Close()` is flagged, not allowlisted. Close can fail (flush,
+// short write, filesystem error). Handle it in a closure or annotate:
+//
+//	defer f.Close() // safe-ignore: read-only file
 //
 // To intentionally ignore an error, write the line as:
 //
@@ -19,7 +26,6 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/mentasystems/gox/internal/astutil"
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
 
@@ -43,6 +49,10 @@ func run(pass *analyzer.Pass) {
 				if call, ok := stmt.X.(*ast.CallExpr); ok {
 					checkBareCall(pass, file, call)
 				}
+			case *ast.DeferStmt:
+				checkBareCall(pass, file, stmt.Call)
+			case *ast.GoStmt:
+				checkBareCall(pass, file, stmt.Call)
 			case *ast.AssignStmt:
 				checkAssign(pass, file, stmt)
 			}
@@ -64,11 +74,8 @@ func checkBareCall(pass *analyzer.Pass, file *ast.File, call *ast.CallExpr) {
 	if isBuiltinAllowedToDropErr(pass, call) {
 		return
 	}
-	// Allow when the trailing comment contains a safe-ignore annotation.
-	if tc := astutil.TrailingComment(pass.Fset, file, call.End()); tc != nil {
-		if analyzer.HasAnnotation(tc, analyzer.AnnSafeIgnore) {
-			return
-		}
+	if analyzer.HasLineAnnotation(pass.Fset, file, call.End(), analyzer.AnnSafeIgnore) {
+		return
 	}
 	name := callee(pass, call)
 	pass.Report(analyzer.Issue{
@@ -123,10 +130,8 @@ func checkAssign(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt) {
 }
 
 func maybeReportBlankErr(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt, name string) {
-	if tc := astutil.TrailingComment(pass.Fset, file, as.End()); tc != nil {
-		if analyzer.HasAnnotation(tc, analyzer.AnnSafeIgnore) {
-			return
-		}
+	if analyzer.HasLineAnnotation(pass.Fset, file, as.End(), analyzer.AnnSafeIgnore) {
+		return
 	}
 	pass.Report(analyzer.Issue{
 		Analyzer: "errcheck",

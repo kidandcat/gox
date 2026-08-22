@@ -317,7 +317,11 @@ func runBaseline(args []string) int {
 		return 2
 	}
 
-	bf, buildErr := baseline.Build(issues, root, cache.AnalyzersVersion(analyzer.All()))
+	bf, buildErr := baseline.Build(
+		issues,
+		/* moduleRoot */ root,
+		/* analyzersVersion */ cache.AnalyzersVersion(analyzer.All()),
+	)
 	if buildErr != nil {
 		fmt.Fprintln(os.Stderr, "gox baseline:", buildErr)
 		return 2

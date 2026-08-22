@@ -2,8 +2,8 @@
 // results.
 //
 // Key = SHA256( gox-binary-version || import-path || sorted(file-name,
-// file-size, file-mtime-nanos) ). Stored under $XDG_CACHE_HOME/gox/v1 (or
-// ~/.cache/gox/v1).
+// file-size, file-mtime-nanos) ). Stored under $XDG_CACHE_HOME/gox/v3 (or
+// ~/.cache/gox/v3).
 //
 // The mtime+size key is a fast proxy for content equality. False negatives
 // (stale cache after a content-preserving touch) only result in unnecessary
@@ -33,7 +33,7 @@ import (
 // Version is bumped whenever cache-incompatible changes are made (new
 // exemption sets, changed report filtering, etc.). Bumping invalidates all
 // existing entries automatically.
-const Version = "v2"
+const Version = "v3"
 
 // Key computes a stable cache key for a package given its import path and
 // file paths on disk. analyzersVersion should change whenever the set of

@@ -13,6 +13,8 @@ code 0.
 
 ```go
 db.Close()
+defer f.Close()
+go mayFail()
 json.Unmarshal(b, &v)
 ```
 
@@ -21,15 +23,27 @@ json.Unmarshal(b, &v)
 ```go
 if err := db.Close(); err != nil { return err }
 if err := json.Unmarshal(b, &v); err != nil { return err }
+
+defer func() {
+    if err := f.Close(); err != nil {
+        log.Printf("close: %v", err)
+    }
+}()
 ```
 
 ## Opt-out
 
-`// safe-ignore: <reason>` on the same line as the call or assignment.
+`// safe-ignore: <reason>` on the same line as the call, `defer`, `go`, or
+assignment.
 
 ```go
 _ = db.Close() // safe-ignore: shutdown path — caller already logged primary error
+defer f.Close() // safe-ignore: read-only file
 ```
+
+`defer f.Close()` is **flagged**, not allowlisted. `Close` can fail (flush,
+short write, network filesystem). A reason-required annotation or an explicit
+handler in a deferred closure is the opt-out.
 
 ## Limitations
 

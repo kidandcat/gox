@@ -102,19 +102,81 @@ func nonExhaustiveType(s Shape) string {
 	return ""
 }
 
+func fetchResp() (*http.Response, error) { return nil, nil }
+
 func leakedBody() {
-	resp, _ := http.Get("http://x") // safe-ignore: testing the body-close path
-	_ = resp                        // expect: bodyclose
+	resp, err := fetchResp()
+	if err != nil {
+		return
+	}
+	_ = resp // expect: bodyclose
+}
+
+func leakedBodyIgnored() {
+	resp, err := fetchResp() // safe-ignore: probe — body discarded by transport
+	if err != nil {
+		return
+	}
+	_ = resp
 }
 
 func notLeaked() {
-	resp, _ := http.Get("http://x") // safe-ignore: testing the body-close path
-	defer resp.Body.Close()         // safe-ignore: cleanup
+	resp, err := fetchResp()
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close() // safe-ignore: cleanup
+}
+
+type closer struct{}
+
+func (closer) Close() error { return nil }
+
+func deferredClose() {
+	var c closer
+	defer c.Close() // expect: errcheck (defer Close is flagged, not allowlisted)
+}
+
+func goDropsError() {
+	go mayFail() // goroutine-ok: testing errcheck on go; expect: errcheck
+}
+
+func discardedOK(v any) string { // any-ok: boundary for the discarded-ok assert
+	s, _ := v.(string) // expect: forcetypeassert (discarded ok)
+	return s
+}
+
+func noClientTimeout() {
+	var c http.Client // expect: httptimeout
+	_ = c
+	_ = new(http.Client) // expect: httptimeout
+}
+
+func noServerTimeout() {
+	_ = &http.Server{} // expect: httptimeout
+}
+
+func defaultClientWithContext(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://x", nil)
+	if err != nil {
+		return
+	}
+	resp, err := http.DefaultClient.Do(req) // ok: request carries the deadline
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close() // safe-ignore: cleanup
+	_ = resp
 }
 
 func wrongContext(ctx context.Context) {
 	fmt.Println(ctx)
 	_ = context.Background() // expect: contextcheck
+}
+
+func ignoredBackground(ctx context.Context) {
+	_ = ctx
+	_ = context.Background() // safe-ignore: detached cleanup must outlive request
 }
 
 func spawnsBareGoroutine() {

@@ -39,6 +39,25 @@ func _(v any) string {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestForcetypeassert_discardedOK(t *testing.T) {
+	const src = `package p
+func _(v any) string {
+	s, _ := v.(string)
+	return s
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{3})
+}
+
+func TestForcetypeassert_discardedOKAnnotated(t *testing.T) {
+	const src = `package p
+func _(v any) string {
+	s, _ := v.(string) // safe-ignore: caller guarantees type
+	return s
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
 func TestForcetypeassert_safeIgnore(t *testing.T) {
 	const src = `package p
 func _(v any) string {

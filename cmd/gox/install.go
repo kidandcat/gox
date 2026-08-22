@@ -10,8 +10,9 @@ import (
 	_ "embed"
 )
 
-//go:embed hooks/claude_stop.sh
 // global-ok: required by //go:embed (compiler restriction — must be a package-level var).
+//
+//go:embed hooks/claude_stop.sh
 var claudeStopScript []byte
 
 // claudeHookCommand is the exact "command" string written into the hook
@@ -151,8 +152,8 @@ func registerClaudeHook(path string) (added, migrated bool, err error) {
 		return false, false, fmt.Errorf("read %s: %w", path, readErr)
 	}
 
-	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
+	hooks, ok := settings["hooks"].(map[string]any)
+	if !ok || hooks == nil {
 		hooks = map[string]any{}
 		settings["hooks"] = hooks
 	}
@@ -176,7 +177,10 @@ func registerClaudeHook(path string) (added, migrated bool, err error) {
 		}
 	}
 
-	stopArr, _ := hooks[claudeHookEvent].([]any)
+	stopArr, stopOK := hooks[claudeHookEvent].([]any)
+	if !stopOK {
+		stopArr = nil
+	}
 
 	// Look for an existing Stop entry with our exact command.
 	alreadyInstalled := slices.ContainsFunc(stopArr, func(raw any) bool { // any-ok: hook entries decoded as untyped JSON.
@@ -225,7 +229,10 @@ func entryHasCommand(raw any, want string) bool { // any-ok: hook entries decode
 	if !ok {
 		return false
 	}
-	inner, _ := entry["hooks"].([]any)
+	inner, okInner := entry["hooks"].([]any)
+	if !okInner {
+		return false
+	}
 	for _, rh := range inner {
 		h, ok := rh.(map[string]any)
 		if !ok {
@@ -262,13 +269,16 @@ func registerGrokHook(path string) (added bool, err error) {
 		return false, fmt.Errorf("read %s: %w", path, readErr)
 	}
 
-	hooks, _ := content["hooks"].(map[string]any)
-	if hooks == nil {
+	hooks, ok := content["hooks"].(map[string]any)
+	if !ok || hooks == nil {
 		hooks = map[string]any{}
 		content["hooks"] = hooks
 	}
 
-	stopArr, _ := hooks[grokHookEvent].([]any)
+	stopArr, stopOK := hooks[grokHookEvent].([]any)
+	if !stopOK {
+		stopArr = nil
+	}
 
 	alreadyInstalled := slices.ContainsFunc(stopArr, func(raw any) bool { // any-ok: hook entries decoded as untyped JSON.
 		return entryHasCommand(raw, grokHookCommand)

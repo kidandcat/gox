@@ -38,7 +38,6 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/mentasystems/gox/internal/astutil"
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
 
@@ -187,12 +186,7 @@ func sharesLineWithPrev(fset *token.FileSet, prev, arg ast.Expr) bool {
 // column inside a call expression, so a line-based lookup is used rather than
 // a strict trailing one.
 func hasSafeIgnore(pass *analyzer.Pass, file *ast.File, pos token.Pos) bool {
-	for _, cg := range astutil.LineComments(pass.Fset, file, pos) {
-		if analyzer.HasAnnotation(cg, analyzer.AnnSafeIgnore) {
-			return true
-		}
-	}
-	return false
+	return analyzer.HasLineAnnotation(pass.Fset, file, pos, analyzer.AnnSafeIgnore)
 }
 
 // calleeSignature returns the *types.Signature for the callee of a CallExpr,

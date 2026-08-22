@@ -58,6 +58,58 @@ func _() {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestErrcheck_deferCall(t *testing.T) {
+	const src = `package p
+func mayFail() error { return nil }
+func _() {
+	defer mayFail()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4})
+}
+
+func TestErrcheck_deferCloseIsFlagged(t *testing.T) {
+	const src = `package p
+type closer struct{}
+func (closer) Close() error { return nil }
+func _() {
+	var c closer
+	defer c.Close()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{6})
+}
+
+func TestErrcheck_deferCloseWithAnnotation(t *testing.T) {
+	const src = `package p
+type closer struct{}
+func (closer) Close() error { return nil }
+func _() {
+	var c closer
+	defer c.Close() // safe-ignore: read-only file
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestErrcheck_goCall(t *testing.T) {
+	const src = `package p
+func mayFail() error { return nil }
+func _() {
+	go mayFail()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4})
+}
+
+func TestErrcheck_goWithAnnotation(t *testing.T) {
+	const src = `package p
+func mayFail() error { return nil }
+func _() {
+	go mayFail() // safe-ignore: fire and forget
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
 func TestErrcheck_fmtPrintExempt(t *testing.T) {
 	const src = `package p
 import "fmt"

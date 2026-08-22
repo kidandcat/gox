@@ -4,6 +4,7 @@
 //
 //	x := v.(T)       // missing ok; panics if v is not T
 //	doStuff(v.(T))   // assertion result used directly inside a call
+//	x, _ := v.(T)    // discarded ok; mismatch yields the zero value silently
 //
 // Allowed:
 //
@@ -14,7 +15,6 @@ package forcetypeassert
 import (
 	_ "embed"
 	"go/ast"
-	"go/token"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
@@ -35,6 +35,7 @@ func run(pass *analyzer.Pass) {
 	for _, file := range pass.Files {
 		// First pass: collect assertions that ARE in a comma-ok position so we don't flag them.
 		safe := map[*ast.TypeAssertExpr]bool{}
+		discardedOK := map[*ast.TypeAssertExpr]bool{}
 		ast.Inspect(file, func(n ast.Node) bool {
 			as, ok := n.(*ast.AssignStmt)
 			if !ok {
@@ -51,7 +52,12 @@ func run(pass *analyzer.Pass) {
 				return true // type switch guard — already safe
 			}
 			if len(as.Lhs) == 2 {
-				safe[ta] = true
+				if id, ok := as.Lhs[1].(*ast.Ident); ok && id.Name != "_" {
+					safe[ta] = true
+				} else {
+					// x, _ := v.(T) is not comma-ok: the failure bit is dropped.
+					discardedOK[ta] = true
+				}
 			}
 			return true
 		})
@@ -70,28 +76,22 @@ func run(pass *analyzer.Pass) {
 			if safe[ta] {
 				return true
 			}
-			if hasIgnoreOnLine(pass.Fset, file, ta.Pos()) {
+			if analyzer.HasLineAnnotation(pass.Fset, file, ta.Pos(), analyzer.AnnSafeIgnore) {
 				return true
+			}
+			msg := "type assertion without comma-ok will panic on mismatch"
+			hint := "use `x, ok := v.(T); if !ok { ... }` or, if a panic is intentional, append `// safe-ignore: <reason>`"
+			if discardedOK[ta] {
+				msg = "type assertion discards ok; mismatch yields the zero value silently"
+				hint = "use `x, ok := v.(T); if !ok { ... }` or annotate with `// safe-ignore: <reason>`"
 			}
 			pass.Report(analyzer.Issue{
 				Analyzer: "forcetypeassert",
 				Pos:      pass.Fset.Position(ta.Pos()),
-				Message:  "type assertion without comma-ok will panic on mismatch",
-				Hint:     "use `x, ok := v.(T); if !ok { ... }` or, if a panic is intentional, append `// safe-ignore: <reason>`",
+				Message:  msg,
+				Hint:     hint,
 			})
 			return true
 		})
 	}
-}
-
-func hasIgnoreOnLine(fset *token.FileSet, file *ast.File, pos token.Pos) bool {
-	line := fset.Position(pos).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			if analyzer.HasAnnotation(cg, analyzer.AnnSafeIgnore) {
-				return true
-			}
-		}
-	}
-	return false
 }
