@@ -1,0 +1,24 @@
+bad.go:13:5: noglobals: package-level mutable var "globalCounter" is forbidden
+bad.go:40:2: errcheck: dropped error from mayFail
+bad.go:44:2: errcheck: error from mayFail assigned to _ without justification
+bad.go:52:2: errcheck: error from split assigned to _ without justification
+bad.go:59:3: shadow: declaration of "err" shadows outer variable
+bad.go:65:18: banany: use of `any` (interface{}) without justification
+bad.go:66:9: forcetypeassert: type assertion without comma-ok will panic on mismatch
+bad.go:80:10: namedargs: argument shares a type with an adjacent argument; prefix with /* userID */ on its own line
+bad.go:80:17: namedargs: argument shares a type with an adjacent argument; prefix with /* orderID */ on its own line
+bad.go:91:2: exhaustive: non-exhaustive switch on enum Color: missing Blue
+bad.go:101:2: exhaustive: non-exhaustive type switch on sealed interface Shape: missing example.com/bad.Square
+bad.go:111:2: bodyclose: *http.Response Body is never closed
+bad.go:140:8: errcheck: dropped error from Close
+bad.go:144:5: errcheck: dropped error from mayFail
+bad.go:148:10: forcetypeassert: type assertion discards ok; mismatch yields the zero value silently
+bad.go:153:6: httptimeout: http.Client variable has zero Timeout
+bad.go:155:6: httptimeout: new(http.Client) has zero Timeout
+bad.go:159:7: httptimeout: http.Server constructed without ReadHeaderTimeout and WriteTimeout
+bad.go:177:6: contextcheck: context.Background()/TODO() inside a function that already receives a context
+bad.go:186:2: goroutine: goroutine spawned without a visible *errgroup.Group, sync.WaitGroup, or CancelFunc in scope
+bad.go:198:13: errorlint: comparison of error values with == / != breaks under wrapping
+bad.go:210:7: errorlint: type assertion on an error value breaks under wrapping
+bad.go:210:7: forcetypeassert: type assertion without comma-ok will panic on mismatch
+bad.go:215:33: errorlint: error formatted with %v — the cause is lost for errors.Is/As

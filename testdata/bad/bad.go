@@ -81,7 +81,10 @@ func callsSwap() {
 }
 
 func callsSwapOK() {
-	swapBug( /* userID */ "u-1" /* orderID */, "o-2")
+	swapBug(
+		/* userID */ "u-1",
+		/* orderID */ "o-2",
+	)
 }
 
 func nonExhaustive(c Color) string {
