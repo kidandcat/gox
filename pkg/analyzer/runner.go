@@ -2,12 +2,12 @@ package analyzer
 
 import (
 	"fmt"
+	"go/ast"
 	"os"
 	"runtime"
 	"sort"
 	"sync"
 
-	"github.com/mentasystems/gox/internal/astutil"
 	"github.com/mentasystems/gox/pkg/loader"
 )
 
@@ -149,11 +149,15 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 
 	// Precompute generated-file set so analyzers can still see all symbols
 	// (needed for cross-file type info) but issues reported from generated
-	// files are dropped.
+	// files are dropped. ast.IsGenerated applies the exact Go convention
+	// (marker before the package clause, any header length) on the already
+	// parsed files, so no file is re-opened.
 	generated := map[string]bool{}
-	for _, path := range info.AbsFiles() {
-		if astutil.IsGenerated(path) {
-			generated[path] = true
+	for _, f := range pkg.Files {
+		if ast.IsGenerated(f) {
+			if tf := pkg.Fset.File(f.Pos()); tf != nil {
+				generated[tf.Name()] = true
+			}
 		}
 	}
 
