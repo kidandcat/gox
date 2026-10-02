@@ -1,14 +1,13 @@
 // Package contextcheck enforces context propagation.
 //
-// If the enclosing function declares a `context.Context` parameter, any call
-// inside its body that accepts a context as the first parameter must pass one
-// of:
-//   - the enclosing function's context parameter
-//   - an identifier whose declaration site uses context.WithCancel/Deadline/
-//     Timeout/Value derived (transitively) from the enclosing context
+// Inside a function declaration that has a `context.Context` parameter, any
+// call to `context.Background()` or `context.TODO()` is reported (including
+// inside closures in its body), since it discards the caller's cancellation
+// and deadline.
 //
-// Calls to `context.Background()` or `context.TODO()` inside such a function
-// are reported, since they discard cancellation propagation from the caller.
+// The analyzer does not track which context is passed to other calls, and
+// function literals that receive their own `context.Context` parameter are
+// not treated as roots. Opt out with `// safe-ignore: <reason>`.
 package contextcheck
 
 import (

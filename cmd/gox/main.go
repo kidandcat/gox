@@ -8,6 +8,8 @@
 //	gox explain <rule>                # print the rule's reference markdown
 //	gox build [args...]               # gox check && go build
 //	gox test  [args...]               # gox check && go test
+//	gox baseline [packages...]        # snapshot current issues into .gox-baseline.json
+//	gox install claude|grok           # install the agent Stop hook
 package main
 
 import (
@@ -87,8 +89,8 @@ Usage:
                             any issue, 2 if a package fails to load
   gox list                  list registered analyzers ("opt-in" = --all only)
   gox explain <rule>        print the rule's reference markdown (use --json for envelope)
-  gox build [args...]       run check, then go build
-  gox test  [args...]       run check, then go test
+  gox build [args...]       run check (./...), then go build [args...]
+  gox test  [args...]       run check (./...), then go test [args...]
   gox baseline              capture current issues into .gox-baseline.json
                             at the module root; check filters these out
   gox install claude        install Stop hook into ~/.claude/settings.json (Claude Code)

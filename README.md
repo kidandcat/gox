@@ -43,7 +43,24 @@ gox list               # list registered analyzers (opt-in ones are marked)
 gox explain <rule>     # print the rule's reference markdown
 gox build [args]       # gox check && go build
 gox test  [args]       # gox check && go test
+gox baseline [pkgs]    # snapshot current issues into .gox-baseline.json
 ```
+
+Other `check` flags: `--no-cache` (bypass the incremental cache),
+`--no-baseline` (report baselined issues too), `--stats` (cache hits/misses
+and elapsed time on stderr), `--max-issues=N` (see [Output cap](#output-cap)).
+
+`gox build` / `gox test` always run the default `gox check` over `./...` of
+the current module; `[args]` are passed only to `go build` / `go test`.
+
+### Baseline
+
+On an existing codebase, `gox baseline` runs every analyzer (bug and style
+tier) and writes the current findings to `.gox-baseline.json` at the module
+root. From then on `gox check` only reports *new* issues. Entries are keyed
+by file, analyzer and a hash of the offending line, so they survive
+unrelated edits that shift line numbers; editing the flagged line itself
+makes the issue reappear. Commit the file so the team shares the same view.
 
 ## Rules
 
@@ -81,7 +98,7 @@ after the colon — empty reasons are ignored.
 
 | Comment | Effect |
 |---|---|
-| `// safe-ignore: <why>` | Suppress `errcheck`, `forcetypeassert`, `bodyclose`, `contextcheck` on the same line |
+| `// safe-ignore: <why>` | Suppress `errcheck`, `forcetypeassert`, `bodyclose`, `contextcheck`, `errorlint`, `shadow`, `namedargs` on the same line |
 | `// global-ok: <why>` | Allow a package-level `var` (`noglobals`) |
 | `// any-ok: <why>` | Allow `any` / `interface{}` (`banany`) |
 | `// goroutine-ok: <why>` | Allow a fire-and-forget `go` statement (`goroutine`) |
