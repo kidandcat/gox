@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 
@@ -87,6 +88,7 @@ func installClaude() int {
 	default:
 		fmt.Printf("✓ hook already registered in %s (script refreshed)\n", settingsPath)
 	}
+	warnIfNoJQ()
 	fmt.Println()
 	fmt.Println("note: Claude Code only re-reads settings.json when /hooks is opened or the")
 	fmt.Println("      app is restarted, so the hook activates in a new session (or right after")
@@ -124,6 +126,7 @@ func installGrok() int {
 	} else {
 		fmt.Printf("✓ hook already registered in %s (script refreshed)\n", hookFile)
 	}
+	warnIfNoJQ()
 	fmt.Println()
 	fmt.Println("note: Grok re-reads ~/.grok/hooks/*.json on session start and when you press")
 	fmt.Println("      `l` (reload) inside the /hooks modal (Ctrl+L).")
@@ -211,12 +214,8 @@ func registerClaudeHook(path string) (added, migrated bool, err error) {
 		return false, false, fmt.Errorf("marshal settings: %w", marshalErr)
 	}
 	out = append(out, '\n')
-	tmp := path + ".tmp"
-	if wErr := os.WriteFile(tmp, out, 0o644); wErr != nil {
-		return false, false, fmt.Errorf("write tmp: %w", wErr)
-	}
-	if rnErr := os.Rename(tmp, path); rnErr != nil {
-		return false, false, fmt.Errorf("rename: %w", rnErr)
+	if wErr := writeFileAtomic(path, out); wErr != nil {
+		return false, false, wErr
 	}
 	return added, migrated, nil
 }
@@ -302,12 +301,39 @@ func registerGrokHook(path string) (added bool, err error) {
 		return false, fmt.Errorf("marshal: %w", marshalErr)
 	}
 	out = append(out, '\n')
-	tmp := path + ".tmp"
-	if wErr := os.WriteFile(tmp, out, 0o644); wErr != nil {
-		return false, fmt.Errorf("write tmp: %w", wErr)
-	}
-	if rnErr := os.Rename(tmp, path); rnErr != nil {
-		return false, fmt.Errorf("rename: %w", rnErr)
+	if wErr := writeFileAtomic(path, out); wErr != nil {
+		return false, wErr
 	}
 	return true, nil
+}
+
+// writeFileAtomic replaces path with data via a temp file + rename. When
+// path already exists its permission bits are kept (settings files are
+// often 0600 because they can hold tokens); new files get 0644.
+func writeFileAtomic(path string, data []byte) error {
+	perm := os.FileMode(0o644)
+	if st, statErr := os.Stat(path); statErr == nil {
+		perm = st.Mode().Perm()
+	}
+	tmp := path + ".tmp"
+	if wErr := os.WriteFile(tmp, data, perm); wErr != nil {
+		return fmt.Errorf("write tmp: %w", wErr)
+	}
+	// WriteFile's perm is filtered by the umask; set it explicitly.
+	if chErr := os.Chmod(tmp, perm); chErr != nil {
+		return fmt.Errorf("chmod tmp: %w", chErr)
+	}
+	if rnErr := os.Rename(tmp, path); rnErr != nil {
+		return fmt.Errorf("rename: %w", rnErr)
+	}
+	return nil
+}
+
+// warnIfNoJQ prints a warning when jq is missing: the hook script needs it
+// to read the payload and to emit the block decision, and without it the
+// hook silently does nothing.
+func warnIfNoJQ() {
+	if _, lookErr := exec.LookPath("jq"); lookErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: `jq` not found in PATH — the gox hook requires it and stays inactive until it is installed")
+	}
 }

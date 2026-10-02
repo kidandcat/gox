@@ -117,6 +117,9 @@ gox install claude
 gox install grok
 ```
 
+The hook script needs `bash`, `git` and [`jq`](https://jqlang.org/) on
+`PATH`; `gox install` warns when `jq` is missing.
+
 `gox install claude` writes `~/.claude/gox-hook.sh` and registers it as a
 `Stop` hook in `~/.claude/settings.json` (timeout 30s). It is idempotent and
 migrates legacy `PostToolUse` registrations automatically. Preserves every
