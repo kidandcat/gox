@@ -2,7 +2,8 @@
 //
 // Usage:
 //
-//	gox check [flags] [packages...]   # run all analyzers, exit 1 on any issue
+//	gox check [flags] [packages...]   # run the analyzers; exit 1 on any issue,
+//	                                  # 2 if a package fails to load
 //	gox list                          # list registered analyzers
 //	gox explain <rule>                # print the rule's reference markdown
 //	gox build [args...]               # gox check && go build
@@ -83,7 +84,7 @@ func usage() {
 Usage:
   gox check [flags] [packages...]
                             run the default (bug-tier) analyzers; exit 1 on
-                            any issue
+                            any issue, 2 if a package fails to load
   gox list                  list registered analyzers ("opt-in" = --all only)
   gox explain <rule>        print the rule's reference markdown (use --json for envelope)
   gox build [args...]       run check, then go build
@@ -181,6 +182,13 @@ func runCheck(args []string) int {
 	}
 	if len(issues) > 0 {
 		fmt.Fprintf(os.Stderr, "gox: %d issue(s)\n", len(issues))
+	}
+	// Fail closed: a package that does not load is a package nobody checked.
+	if runStats.LoadErrors > 0 {
+		fmt.Fprintf(os.Stderr, "gox: %d package(s) failed to load and were not analyzed (see errors above)\n", runStats.LoadErrors)
+		return 2
+	}
+	if len(issues) > 0 {
 		return 1
 	}
 	return 0
@@ -316,9 +324,13 @@ func runBaseline(args []string) int {
 
 	// Baselines always capture with the full analyzer set so a later
 	// `check --skip=...` still filters against a complete snapshot.
-	issues, _, _, runErr := runAnalyzers(patterns, analyzer.All(), *noCache)
+	issues, runStats, _, runErr := runAnalyzers(patterns, analyzer.All(), *noCache)
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "gox baseline:", runErr)
+		return 2
+	}
+	if runStats.LoadErrors > 0 {
+		fmt.Fprintf(os.Stderr, "gox baseline: %d package(s) failed to load; refusing to write an incomplete baseline\n", runStats.LoadErrors)
 		return 2
 	}
 

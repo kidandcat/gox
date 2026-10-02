@@ -35,6 +35,7 @@ go install github.com/mentasystems/gox/cmd/gox@latest
 
 ```sh
 gox check ./...        # run the default (bug-tier) analyzers; exit 1 on any issue
+                       # (exit 2 if a package fails to load: broken code is never "clean")
 gox check --all ./...  # one-off full run: also the opt-in style tier (env: GOX_ALL=1)
 gox check --skip=errcheck ./...
                        # skip named analyzers for this run (env: GOX_SKIP)
