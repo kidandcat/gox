@@ -24,6 +24,13 @@
 set -u
 
 PAYLOAD=$(cat)
+
+# jq parses the payload and builds the block decision. Without it every
+# check below would silently degrade to "no issues", so say so on stderr.
+if ! command -v jq >/dev/null 2>&1; then
+  echo "gox hook: jq not found in PATH; skipping gox check (install jq to enable the hook)" >&2
+  exit 0
+fi
 CWD=$(printf '%s' "$PAYLOAD" | jq -r '.cwd // empty')
 [ -n "$CWD" ] || CWD="$PWD"
 [ -d "$CWD" ] || exit 0

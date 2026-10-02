@@ -6,21 +6,50 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   ci:
+    name: ci (go ${{ matrix.go }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The minimum version declared in go.mod, plus the current release.
+        go: ['1.25', 'stable']
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: ${{ matrix.go }}
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
 
       - name: build
         run: go build ./...
 
+      - name: vet
+        run: go vet ./...
+
       - name: gox check (self-dogfood)
         run: go run ./cmd/gox check --all ./...
 
-      - name: test
-        run: go test ./...
+      - name: test (race)
+        run: go test -race ./...
+
+      # Linters run via `go run tool@version` so they never enter go.mod
+      # (the module stays dependency-free).
+      - name: staticcheck
+        if: matrix.go == 'stable'
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+
+      - name: govulncheck
+        if: matrix.go == 'stable'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

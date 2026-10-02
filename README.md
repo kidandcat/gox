@@ -35,6 +35,7 @@ go install github.com/mentasystems/gox/cmd/gox@latest
 
 ```sh
 gox check ./...        # run the default (bug-tier) analyzers; exit 1 on any issue
+                       # (exit 2 if a package fails to load: broken code is never "clean")
 gox check --all ./...  # one-off full run: also the opt-in style tier (env: GOX_ALL=1)
 gox check --skip=errcheck ./...
                        # skip named analyzers for this run (env: GOX_SKIP)
@@ -116,6 +117,9 @@ gox install claude
 gox install grok
 ```
 
+The hook script needs `bash`, `git` and [`jq`](https://jqlang.org/) on
+`PATH`; `gox install` warns when `jq` is missing.
+
 `gox install claude` writes `~/.claude/gox-hook.sh` and registers it as a
 `Stop` hook in `~/.claude/settings.json` (timeout 30s). It is idempotent and
 migrates legacy `PostToolUse` registrations automatically. Preserves every
@@ -171,9 +175,11 @@ On a 442-package monorepo (~1800 .go files):
 | Cold run (no cache) | ~9.4s |
 | Warm run (full cache hit) | ~2.6s |
 
-The cache is per-package, keyed by file mtime+size and the analyzer set
-hash. It lives under `$XDG_CACHE_HOME/gox/v3` (or `~/.cache/gox/v3`).
-Pass `--no-cache` to disable.
+The cache is per-package, keyed by file mtime+size, the export data of
+every dependency (so editing a callee's signature re-checks its callers),
+the analyzer set, and the gox build itself (upgrading or rebuilding gox
+invalidates old entries). It lives under `$XDG_CACHE_HOME/gox/v4` (or
+`~/.cache/gox/v4`). Pass `--no-cache` to disable.
 
 ## Output cap
 
