@@ -52,6 +52,7 @@ type PackageInfo struct {
 
 	importMap      map[string]string
 	exports        map[string]string
+	deps           []string
 	reportTestOnly bool
 }
 
@@ -64,6 +65,19 @@ func (p *PackageInfo) AbsFiles() []string {
 			/* name */ name,
 		)
 	}
+	return out
+}
+
+// DepExports returns one "importpath=exportfile" entry per transitive
+// dependency, sorted. `go list -export` names export files by content hash,
+// so the list changes whenever any dependency's exported API changes; it is
+// meant to be folded into cache keys.
+func (p *PackageInfo) DepExports() []string {
+	out := make([]string, 0, len(p.deps))
+	for _, d := range p.deps {
+		out = append(out, d+"="+p.exports[d])
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -104,6 +118,7 @@ type listEntry struct {
 	CompiledGoFiles []string
 	Export          string
 	ImportMap       map[string]string
+	Deps            []string
 	DepOnly         bool
 	ForTest         string
 	Error           *struct{ Err string }
@@ -122,10 +137,32 @@ func (e listEntry) isTestMain() bool {
 	return e.Name == "main" && strings.HasSuffix(e.ImportPath, ".test") && !strings.Contains(e.ImportPath, "[")
 }
 
+// PackageError is a package that `go list` could not load (syntax error,
+// type error, missing dependency, ...). Such a package is not analyzed.
+type PackageError struct {
+	ImportPath string
+	Err        string
+}
+
+func (e PackageError) Error() string { return e.ImportPath + ": " + e.Err }
+
 // List enumerates the packages matched by the patterns and returns their
 // file metadata without parsing them. Dependencies are queried only to
 // populate export-data paths for the type checker.
+//
+// Packages that fail to load are printed to stderr and skipped. Callers that
+// must not silently pass on broken code should use ListWithErrors.
 func List(patterns ...string) ([]*PackageInfo, error) {
+	infos, pkgErrs, err := ListWithErrors(patterns...)
+	for _, pe := range pkgErrs {
+		fmt.Fprintf(os.Stderr, "gox: %s: %s\n", pe.ImportPath, pe.Err)
+	}
+	return infos, err
+}
+
+// ListWithErrors is List, but returns the packages that failed to load
+// instead of printing them, so the caller can fail closed.
+func ListWithErrors(patterns ...string) ([]*PackageInfo, []PackageError, error) {
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
@@ -134,22 +171,23 @@ func List(patterns ...string) ([]*PackageInfo, error) {
 	cmd.Stderr = os.Stderr
 	out, runErr := cmd.Output()
 	if runErr != nil {
-		return nil, fmt.Errorf("go list: %w", runErr)
+		return nil, nil, fmt.Errorf("go list: %w", runErr)
 	}
 
 	exports := map[string]string{}
 	var infos []*PackageInfo
+	var pkgErrs []PackageError
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for dec.More() {
 		var e listEntry
 		if decErr := dec.Decode(&e); decErr != nil {
-			return nil, fmt.Errorf("decode go list: %w", decErr)
+			return nil, nil, fmt.Errorf("decode go list: %w", decErr)
 		}
 		if e.Export != "" {
 			exports[e.ImportPath] = e.Export
 		}
 		if e.Error != nil {
-			fmt.Fprintf(os.Stderr, "gox: %s: %s\n", e.ImportPath, e.Error.Err)
+			pkgErrs = append(pkgErrs, PackageError{ImportPath: e.ImportPath, Err: e.Error.Err})
 			continue
 		}
 		if e.DepOnly || e.isTestMain() {
@@ -166,12 +204,13 @@ func List(patterns ...string) ([]*PackageInfo, error) {
 			ForTest:        e.ForTest,
 			importMap:      e.ImportMap,
 			exports:        exports,
+			deps:           e.Deps,
 			reportTestOnly: e.ForTest != "" && !strings.HasSuffix(e.Name, "_test"),
 		}
 		infos = append(infos, info)
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].ImportPath < infos[j].ImportPath })
-	return infos, nil
+	return infos, pkgErrs, nil
 }
 
 // LoadPackage parses and type-checks a single package.

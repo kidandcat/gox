@@ -21,6 +21,55 @@ func _() {
 	}
 }
 
+func TestBodyClose_closureReportedOnce(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _(c *http.Client, req *http.Request) {
+	f := func() {
+		resp, err := c.Do(req)
+		if err != nil { return }
+		_ = resp
+	}
+	f()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{5})
+}
+
+func TestBodyClose_closedInsideDeferredClosure(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _(c *http.Client, req *http.Request) {
+	resp, err := c.Do(req)
+	if err != nil { return }
+	defer func() { _ = resp.Body.Close() }()
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestBodyClose_returnedToCaller(t *testing.T) {
+	const src = `package p
+import "net/http"
+func get(c *http.Client, req *http.Request) (*http.Response, error) {
+	resp, err := c.Do(req)
+	return resp, err
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestBodyClose_returnedFromClosureOnlyDoesNotExemptOuter(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _(c *http.Client, req *http.Request) {
+	resp, err := c.Do(req)
+	if err != nil { return }
+	f := func() *http.Response { return resp }
+	_ = f
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4})
+}
+
 func TestBodyClose_safeIgnore(t *testing.T) {
 	const src = `package p
 import "net/http"

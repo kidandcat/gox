@@ -39,6 +39,41 @@ func _(v any) string {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestForcetypeassert_varCommaOkIsFine(t *testing.T) {
+	const src = `package p
+func _(v any) string {
+	var s, ok = v.(string)
+	if !ok {
+		return ""
+	}
+	return s
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestForcetypeassert_varDiscardedOK(t *testing.T) {
+	const src = `package p
+func _(v any) string {
+	var s, _ = v.(string)
+	return s
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{3})
+	if len(issues) == 1 && issues[0].Message != "type assertion discards ok; mismatch yields the zero value silently" {
+		t.Errorf("unexpected message: %q", issues[0].Message)
+	}
+}
+
+func TestForcetypeassert_varPanicking(t *testing.T) {
+	const src = `package p
+func _(v any) string {
+	var s = v.(string)
+	return s
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{3})
+}
+
 func TestForcetypeassert_discardedOK(t *testing.T) {
 	const src = `package p
 func _(v any) string {
