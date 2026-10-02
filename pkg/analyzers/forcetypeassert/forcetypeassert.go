@@ -9,6 +9,7 @@
 // Allowed:
 //
 //	x, ok := v.(T)
+//	var x, ok = v.(T)
 //	switch x := v.(type) { ... }   // type switch (handled by the compiler)
 package forcetypeassert
 
@@ -36,28 +37,36 @@ func run(pass *analyzer.Pass) {
 		// First pass: collect assertions that ARE in a comma-ok position so we don't flag them.
 		safe := map[*ast.TypeAssertExpr]bool{}
 		discardedOK := map[*ast.TypeAssertExpr]bool{}
+		classify := func(lhs []ast.Expr, rhs []ast.Expr) {
+			if len(rhs) != 1 {
+				return
+			}
+			ta, ok := rhs[0].(*ast.TypeAssertExpr)
+			if !ok || ta.Type == nil {
+				return // not an assertion, or a type switch guard (already safe)
+			}
+			if len(lhs) != 2 {
+				return
+			}
+			if id, ok := lhs[1].(*ast.Ident); ok && id.Name != "_" {
+				safe[ta] = true
+			} else {
+				// x, _ := v.(T) is not comma-ok: the failure bit is dropped.
+				discardedOK[ta] = true
+			}
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			as, ok := n.(*ast.AssignStmt)
-			if !ok {
-				return true
-			}
-			if len(as.Rhs) != 1 {
-				return true
-			}
-			ta, ok := as.Rhs[0].(*ast.TypeAssertExpr)
-			if !ok {
-				return true
-			}
-			if ta.Type == nil {
-				return true // type switch guard — already safe
-			}
-			if len(as.Lhs) == 2 {
-				if id, ok := as.Lhs[1].(*ast.Ident); ok && id.Name != "_" {
-					safe[ta] = true
-				} else {
-					// x, _ := v.(T) is not comma-ok: the failure bit is dropped.
-					discardedOK[ta] = true
+			switch s := n.(type) {
+			case *ast.AssignStmt:
+				// x, ok := v.(T)  /  x, ok = v.(T)
+				classify(s.Lhs, s.Rhs)
+			case *ast.ValueSpec:
+				// var x, ok = v.(T)
+				names := make([]ast.Expr, len(s.Names))
+				for i, id := range s.Names {
+					names[i] = id
 				}
+				classify(names, s.Values)
 			}
 			return true
 		})
