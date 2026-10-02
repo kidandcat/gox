@@ -5,10 +5,12 @@
 // subordinate one), there exists a statement of the form `X.Body.Close()`
 // (optionally inside a defer), where X is the assigned identifier.
 //
-// Heuristic, not sound. It will miss cases where the response escapes
-// through a function call or struct field. Those cases are uncommon enough
-// that the false-negative rate is acceptable in exchange for zero false
-// positives on idiomatic code.
+// A response that is returned directly to the caller (`return resp, err`)
+// is treated as handed off: closing it becomes the caller's job.
+//
+// Heuristic, not sound. A response that escapes through a function call or
+// struct field (e.g. `defer closeBody(resp)`) is still reported; annotate
+// those sites with `// safe-ignore: <reason>`.
 package bodyclose
 
 import (
@@ -62,6 +64,11 @@ func checkBlock(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
 	var binds []respBind
 
 	ast.Inspect(body, func(n ast.Node) bool {
+		// Nested function literals are checked on their own by run(); scanning
+		// them here as well reported every leak inside a closure twice.
+		if _, isLit := n.(*ast.FuncLit); isLit {
+			return false
+		}
 		as, ok := n.(*ast.AssignStmt)
 		if !ok || len(as.Rhs) != 1 {
 			return true
@@ -119,7 +126,10 @@ func checkBlock(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
 		if analyzer.HasLineAnnotation(pass.Fset, file, b.ident.Pos(), analyzer.AnnSafeIgnore) {
 			continue
 		}
-		if hasBodyClose(body, b.ident.Name, pass.TypesInfo) {
+		if hasBodyClose(body, b.ident.Name) {
+			continue
+		}
+		if isReturned(body, b.ident.Name) {
 			continue
 		}
 		pass.Report(analyzer.Issue{
@@ -147,7 +157,7 @@ func isHTTPResponsePointer(t types.Type) bool {
 	return obj.Pkg().Path() == "net/http" && obj.Name() == "Response"
 }
 
-func hasBodyClose(body *ast.BlockStmt, name string, info *types.Info) bool {
+func hasBodyClose(body *ast.BlockStmt, name string) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -170,6 +180,30 @@ func hasBodyClose(body *ast.BlockStmt, name string, info *types.Info) bool {
 		found = true
 		return false
 	})
-	_ = info
+	return found
+}
+
+// isReturned reports whether the identifier is returned as-is from the
+// function that owns body (not from a nested function literal), i.e. the
+// response is handed to the caller, who becomes responsible for closing it.
+func isReturned(body *ast.BlockStmt, name string) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch v := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			for _, r := range v.Results {
+				if id, ok := r.(*ast.Ident); ok && id.Name == name {
+					found = true
+					return false
+				}
+			}
+		}
+		return true
+	})
 	return found
 }
