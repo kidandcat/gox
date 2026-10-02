@@ -1,19 +1,23 @@
 // Package cache provides a per-package incremental cache for gox analyzer
 // results.
 //
-// Key = SHA256( gox-binary-version || import-path || sorted(file-name,
-// file-size, file-mtime-nanos) ). Stored under $XDG_CACHE_HOME/gox/v3 (or
-// ~/.cache/gox/v3).
+// Key = SHA256( cache-format-version || gox-binary-fingerprint ||
+// analyzer-set || import-path || sorted(file-name, file-size,
+// file-mtime-nanos) || sorted(dependency export-data files) ). Stored under
+// $XDG_CACHE_HOME/gox/v4 (or ~/.cache/gox/v4).
 //
 // The mtime+size key is a fast proxy for content equality. False negatives
 // (stale cache after a content-preserving touch) only result in unnecessary
 // re-analysis; false positives (cache hit on changed content) cannot occur
 // because any edit updates mtime.
 //
-// Cross-package staleness is intentionally not tracked: an analyzer that
-// looks at an imported package's types may serve a stale result if a
-// dependency is edited but this package is not. Use `gox check --no-cache`
-// after large refactors that change cross-package signatures.
+// Cross-package changes are tracked through the dependencies' export-data
+// file names, which `go list -export` derives from a content hash: editing
+// the exported API of any (transitive) dependency changes the key, so a
+// dependent package is re-analyzed (e.g. a callee that starts returning an
+// error). The binary fingerprint (module version, VCS revision, executable
+// size+mtime) invalidates entries when gox itself is upgraded or rebuilt,
+// since rule logic can change without the analyzer names changing.
 package cache
 
 import (
@@ -25,7 +29,9 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
+	"sync"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
@@ -33,12 +39,26 @@ import (
 // Version is bumped whenever cache-incompatible changes are made (new
 // exemption sets, changed report filtering, etc.). Bumping invalidates all
 // existing entries automatically.
-const Version = "v3"
+const Version = "v4"
 
 // Key computes a stable cache key for a package given its import path and
 // file paths on disk. analyzersVersion should change whenever the set of
 // registered analyzers changes (e.g. a new gox release).
+//
+// Key does not account for dependencies; prefer KeyWithDeps.
 func Key(importPath string, files []string, analyzersVersion string) (string, error) {
+	return KeyWithDeps(
+		/* importPath */ importPath,
+		/* files */ files,
+		/* depExports */ nil,
+		/* analyzersVersion */ analyzersVersion,
+	)
+}
+
+// KeyWithDeps is Key plus depExports — typically loader.PackageInfo
+// DepExports() — so the entry is invalidated when any dependency's export
+// data changes.
+func KeyWithDeps(importPath string, files, depExports []string, analyzersVersion string) (string, error) {
 	type entry struct {
 		Name  string
 		Size  int64
@@ -59,14 +79,44 @@ func Key(importPath string, files []string, analyzersVersion string) (string, er
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 
 	h := sha256.New()
+	// hash.Hash.Write never returns an error, so fmt.Fprintf cannot fail here.
 	fmt.Fprintf(h, "gox-cache-%s\n", Version)
+	fmt.Fprintf(h, "binary=%s\n", binaryFingerprint())
 	fmt.Fprintf(h, "analyzers=%s\n", analyzersVersion)
 	fmt.Fprintf(h, "pkg=%s\n", importPath)
 	for _, e := range entries {
 		fmt.Fprintf(h, "%s|%d|%d\n", e.Name, e.Size, e.MTime)
 	}
+	for _, d := range depExports {
+		fmt.Fprintf(h, "dep=%s\n", d)
+	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// binaryFingerprint identifies the running gox build. Analyzer names alone
+// do not change when a rule's logic does, so without this an upgraded gox
+// would keep replaying results computed by the previous version.
+//
+// global-ok: computed once per process; read-only afterwards.
+var binaryFingerprint = sync.OnceValue(func() string {
+	fp := ""
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		fp = bi.GoVersion + "|" + bi.Main.Path + "@" + bi.Main.Version
+		for _, s := range bi.Settings {
+			if s.Key == "vcs.revision" || s.Key == "vcs.modified" {
+				fp += "|" + s.Key + "=" + s.Value
+			}
+		}
+	}
+	// Local rebuilds without a VCS stamp (or with uncommitted changes) keep
+	// the same version string; the executable's size+mtime covers them.
+	if exe, exeErr := os.Executable(); exeErr == nil {
+		if st, statErr := os.Stat(exe); statErr == nil {
+			fp += fmt.Sprintf("|exe=%d.%d", st.Size(), st.ModTime().UnixNano())
+		}
+	}
+	return fp
+})
 
 // Dir returns the on-disk cache directory, creating it if necessary.
 func Dir() (string, error) {

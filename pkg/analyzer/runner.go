@@ -31,20 +31,28 @@ type Stats struct {
 	PackagesTotal int
 	CacheHits     int
 	CacheMisses   int
+	// LoadErrors counts packages that could not be listed, parsed, or
+	// type-checked and were therefore NOT analyzed. A non-zero value means
+	// the issue list is incomplete; callers should fail closed.
+	LoadErrors int
 }
 
 // pkgResult is the per-package output sent from worker → collector.
 type pkgResult struct {
-	issues []Issue
-	hit    bool
+	issues  []Issue
+	hit     bool
+	loadErr bool
 }
 
 // Run loads (or cache-replays) every package matched by patterns and applies
 // every registered analyzer. Packages are processed in parallel.
 func Run(patterns []string, analyzers []*Analyzer, opts RunOptions) ([]Issue, Stats, error) {
-	infos, listErr := loader.List(patterns...)
+	infos, pkgErrs, listErr := loader.ListWithErrors(patterns...)
 	if listErr != nil {
 		return nil, Stats{}, listErr
+	}
+	for _, pe := range pkgErrs {
+		fmt.Fprintf(os.Stderr, "gox: %s: %s\n", pe.ImportPath, pe.Err)
 	}
 
 	workers := opts.Workers
@@ -84,10 +92,13 @@ func Run(patterns []string, analyzers []*Analyzer, opts RunOptions) ([]Issue, St
 		close(results)
 	}()
 
-	stats := Stats{PackagesTotal: len(infos)}
+	stats := Stats{PackagesTotal: len(infos), LoadErrors: len(pkgErrs)}
 	var issues []Issue
 	for r := range results {
 		issues = append(issues, r.issues...)
+		if r.loadErr {
+			stats.LoadErrors++
+		}
 		if r.hit {
 			stats.CacheHits++
 		} else {
@@ -133,7 +144,7 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 	pkg, loadErr := loader.LoadPackage(info)
 	if loadErr != nil {
 		fmt.Fprintf(os.Stderr, "gox: %s: %v\n", info.ImportPath, loadErr)
-		return pkgResult{hit: false}
+		return pkgResult{hit: false, loadErr: true}
 	}
 
 	// Precompute generated-file set so analyzers can still see all symbols
