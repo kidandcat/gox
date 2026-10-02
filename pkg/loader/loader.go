@@ -52,6 +52,7 @@ type PackageInfo struct {
 
 	importMap      map[string]string
 	exports        map[string]string
+	deps           []string
 	reportTestOnly bool
 }
 
@@ -64,6 +65,19 @@ func (p *PackageInfo) AbsFiles() []string {
 			/* name */ name,
 		)
 	}
+	return out
+}
+
+// DepExports returns one "importpath=exportfile" entry per transitive
+// dependency, sorted. `go list -export` names export files by content hash,
+// so the list changes whenever any dependency's exported API changes; it is
+// meant to be folded into cache keys.
+func (p *PackageInfo) DepExports() []string {
+	out := make([]string, 0, len(p.deps))
+	for _, d := range p.deps {
+		out = append(out, d+"="+p.exports[d])
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -104,6 +118,7 @@ type listEntry struct {
 	CompiledGoFiles []string
 	Export          string
 	ImportMap       map[string]string
+	Deps            []string
 	DepOnly         bool
 	ForTest         string
 	Error           *struct{ Err string }
@@ -166,6 +181,7 @@ func List(patterns ...string) ([]*PackageInfo, error) {
 			ForTest:        e.ForTest,
 			importMap:      e.ImportMap,
 			exports:        exports,
+			deps:           e.Deps,
 			reportTestOnly: e.ForTest != "" && !strings.HasSuffix(e.Name, "_test"),
 		}
 		infos = append(infos, info)

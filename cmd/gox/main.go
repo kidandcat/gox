@@ -256,7 +256,12 @@ func runAnalyzers(patterns []string, analyzers []*analyzer.Analyzer, noCache boo
 		} else {
 			version := cache.AnalyzersVersion(analyzers)
 			opts.CacheKey = func(info *loader.PackageInfo) (string, error) {
-				return cache.Key( /* importPath */ info.ImportPath /* files */, info.AbsFiles() /* analyzersVersion */, version)
+				return cache.KeyWithDeps(
+					/* importPath */ info.ImportPath,
+					/* files */ info.AbsFiles(),
+					/* depExports */ info.DepExports(),
+					/* analyzersVersion */ version,
+				)
 			}
 			opts.CacheGet = func(key string) ([]analyzer.Issue, bool) {
 				return cache.Get( /* dir */ dir /* key */, key)
