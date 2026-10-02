@@ -245,12 +245,6 @@ func entryHasCommand(raw any, want string) bool { // any-ok: hook entries decode
 	return false
 }
 
-// entryHasGoxCommand is a compatibility wrapper (used by older call sites
-// before the two-target refactor). Prefer entryHasCommand directly.
-func entryHasGoxCommand(raw any) bool { // any-ok: hook entries decoded as untyped JSON.
-	return entryHasCommand(raw, claudeHookCommand)
-}
-
 // registerGrokHook reads ~/.grok/hooks/gox.json (if present), ensures a Stop
 // entry for our hook command exists (appending if needed), and writes back
 // preserving any other events or user content in the file. Returns added=true

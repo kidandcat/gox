@@ -45,7 +45,7 @@ const Version = 1
 
 // Entry is a single baselined issue.
 type Entry struct {
-	File     string `json:"file"`      // relative to ModuleRoot
+	File     string `json:"file"` // relative to ModuleRoot
 	Analyzer string `json:"analyzer"`
 	LineHash string `json:"line_hash"` // sha256(trimmed line content)[:16]
 }
