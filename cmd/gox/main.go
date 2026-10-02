@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	gox check [flags] [packages...]   # run the bug-tier analyzers (--all: every analyzer); exit 1 on any issue
+//	gox check [flags] [packages...]   # run all analyzers, exit 1 on any issue
 //	gox list                          # list registered analyzers
 //	gox explain <rule>                # print the rule's reference markdown
 //	gox build [args...]               # gox check && go build
