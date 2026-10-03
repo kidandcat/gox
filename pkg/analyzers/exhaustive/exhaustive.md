@@ -46,5 +46,11 @@ default: // exhaustive-ok: any future variant routes here on purpose
 
 ## Limitations
 
-- Detects iota-defined enums in the same package, and interfaces with private
-  marker methods (the standard "sealed interface" pattern).
+- Integer enums are detected in the package under analysis and in other
+  packages of the **same module**. A switch on `model.Kind` from `service/`
+  is checked. Switches on standard-library enums (`reflect.Kind`) and on
+  enums from third-party modules are not.
+- Two constants with the same value (`const Default = Off`) are one variant:
+  a case for either name covers both.
+- Sealed interfaces are still same-package only. An unexported method cannot
+  be implemented in another package.

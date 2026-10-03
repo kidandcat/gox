@@ -14,9 +14,10 @@ block the goroutine forever. Same trap for a freshly constructed `&http.Client{}
 `http.NewRequestWithContext` in the same function — the deadline is on the
 request.
 
-`http.Server` literals must set both `ReadHeaderTimeout` and `WriteTimeout`
-to a non-zero value (Slowloris / hung-write). This is the single most common
-cause of "the request never returned" production incidents in LLM-written Go.
+`http.ListenAndServe`, `http.ListenAndServeTLS`, `http.Serve`, and
+`http.ServeTLS` build that same zero-value server and are flagged. So are
+`http.Server` literals that omit `ReadHeaderTimeout` or `WriteTimeout` or
+set either to 0 (Slowloris / hung-write).
 
 ## Bad
 
@@ -30,6 +31,8 @@ var c http.Client
 _ = new(http.Client)
 
 _ = &http.Server{Addr: ":8080"}
+
+http.ListenAndServe(":8080", nil)
 ```
 
 ## Good

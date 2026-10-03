@@ -85,7 +85,7 @@ func run(pass *analyzer.Pass) {
 // column (which may sit in the middle of a line, e.g. inside an `if`-init
 // clause), so a line-based lookup is used rather than a strict trailing one.
 func hasSafeIgnore(pass *analyzer.Pass, file *ast.File, pos token.Pos) bool {
-	return analyzer.HasLineAnnotation(pass.Fset, file, pos, analyzer.AnnSafeIgnore)
+	return pass.HasLineAnnotation(file, pos, analyzer.AnnSafeIgnore)
 }
 
 // lookupVarOrParam walks scopes outward looking for a *types.Var (variable or

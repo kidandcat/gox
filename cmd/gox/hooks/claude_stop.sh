@@ -60,7 +60,9 @@ FILES=$(
 # isMeta hook-feedback entries don't count, so a re-stop after a gox block
 # keeps the same turn window).
 TRANSCRIPT=$(printf '%s' "$PAYLOAD" | jq -r '.transcript_path // empty')
-SESSION=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty')
+# session_id becomes a filename under ~/.cache. Keep it to a safe alphabet
+# so a surprising payload cannot escape that directory.
+SESSION=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' | tr -cd 'A-Za-z0-9_-')
 TURN_EPOCH=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
   TURN_EPOCH=$(

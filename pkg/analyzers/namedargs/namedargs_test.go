@@ -1,6 +1,9 @@
 package namedargs_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
@@ -133,6 +136,62 @@ func _() {
 	issues := analyzertest.Run(t, get(), src)
 	if len(issues) != 2 {
 		t.Fatalf("got %d issues, want 2 (bare safe-ignore must not suppress)", len(issues))
+	}
+}
+
+// A dotless module path used to look like the standard library, so calls in
+// `module myapp` were silently exempt. go list's Standard field is the
+// authority; strings.HasPrefix stays exempt.
+func TestNamedArgs_dotlessModuleIsNotStdlib(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t,
+		/* path */ filepath.Join(dir, "go.mod"),
+		/* body */ "module myapp\n\ngo 1.26.8\n",
+	)
+	writeFile(t,
+		/* path */ filepath.Join(dir, "p", "p.go"),
+		/* body */ `package p
+
+import "strings"
+
+func transfer(from, to string) {}
+
+func use(a, b string) bool {
+	transfer(a, b)
+	return strings.HasPrefix(a, b)
+}
+`)
+	t.Chdir(dir)
+	issues, stats, err := analyzer.Run([]string{"./..."}, []*analyzer.Analyzer{get()}, analyzer.RunOptions{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stats.LoadErrors != 0 {
+		t.Fatalf("load errors: %d", stats.LoadErrors)
+	}
+	if len(issues) != 2 {
+		for _, is := range issues {
+			t.Logf("%s:%d: %s", is.Pos.Filename, is.Pos.Line, is.Message)
+		}
+		t.Fatalf("got %d issues, want 2 on transfer and none on HasPrefix", len(issues))
+	}
+	for _, is := range issues {
+		if !strings.HasSuffix(is.Pos.Filename, filepath.Join("p", "p.go")) {
+			t.Fatalf("issue file %s", is.Pos.Filename)
+		}
+		if is.Pos.Line != 8 {
+			t.Fatalf("issue line %d, want the transfer call", is.Pos.Line)
+		}
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

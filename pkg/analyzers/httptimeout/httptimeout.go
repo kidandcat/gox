@@ -23,7 +23,8 @@
 //
 // `http.Server` literals missing ReadHeaderTimeout or WriteTimeout (or
 // setting either to the constant 0) are also reported — those are the
-// Slowloris / hung-write knobs.
+// Slowloris / hung-write knobs. `http.ListenAndServe`, `ListenAndServeTLS`,
+// `Serve`, and `ServeTLS` are reported too: each builds a zero-value Server.
 //
 // The analyzer does not try to follow a request's context across function
 // boundaries. To accept a flagged site, annotate the same line with
@@ -58,6 +59,16 @@ func init() {
 func isShortcutFunc(name string) bool {
 	switch name {
 	case "Get", "Post", "PostForm", "Head":
+		return true
+	}
+	return false
+}
+
+// isBareServerFunc reports package-level net/http helpers that construct an
+// http.Server with zero ReadHeaderTimeout and WriteTimeout and then serve.
+func isBareServerFunc(name string) bool {
+	switch name {
+	case "ListenAndServe", "ListenAndServeTLS", "Serve", "ServeTLS":
 		return true
 	}
 	return false
@@ -142,6 +153,18 @@ func checkCall(pass *analyzer.Pass, file *ast.File, call *ast.CallExpr, ctxReqs 
 			report(pass, file, call.Pos(),
 				/* msg */ "http."+sel.Sel.Name+" uses http.DefaultClient which has no timeout",
 				/* hint */ "build an explicit *http.Client with a Timeout, or use http.NewRequestWithContext")
+			return
+		}
+	}
+
+	// `http.ListenAndServe` / `ListenAndServeTLS` / `Serve` / `ServeTLS`
+	// build a zero-value Server. Methods on an existing Server are not
+	// matched here; the literal (or its absence) is reported separately.
+	if id, ok := sel.X.(*ast.Ident); ok && isBareServerFunc(sel.Sel.Name) {
+		if isNetHTTPPackage(pass, id) {
+			report(pass, file, call.Pos(),
+				/* msg */ "http."+sel.Sel.Name+" uses an http.Server with no ReadHeaderTimeout or WriteTimeout",
+				/* hint */ "use &http.Server{ReadHeaderTimeout: ..., WriteTimeout: ...} and call its method")
 			return
 		}
 	}
@@ -315,7 +338,7 @@ func joinAnd(parts []string) string {
 }
 
 func report(pass *analyzer.Pass, file *ast.File, pos token.Pos, msg, hint string) {
-	if analyzer.HasLineAnnotation(pass.Fset, file, pos, analyzer.AnnTimeoutOK) {
+	if pass.HasLineAnnotation(file, pos, analyzer.AnnTimeoutOK) {
 		return
 	}
 	pass.Report(analyzer.Issue{

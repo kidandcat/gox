@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The minimum version declared in go.mod, plus the current release.
-        go: ['1.25', 'stable']
+        # Minimum toolchain from go.mod. 1.25 is out of support and its stdlib
+        # has GO-2026-4602, which is fixed in 1.26.8. The second cell tracks
+        # the current stable release.
+        go: ['1.26.8', 'stable']
     steps:
       - uses: actions/checkout@v4
 

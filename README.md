@@ -31,6 +31,9 @@ most likely to introduce. Be loud, be opinionated, fail closed.
 go install github.com/mentasystems/gox/cmd/gox@latest
 ```
 
+Requires **Go 1.26.8** or newer. Go 1.25 is out of support, and the 1.25.5
+standard library is affected by GO-2026-4602.
+
 ## Use
 
 ```sh
@@ -44,11 +47,17 @@ gox explain <rule>     # print the rule's reference markdown
 gox build [args]       # gox check && go build
 gox test  [args]       # gox check && go test
 gox baseline [pkgs]    # snapshot current issues into .gox-baseline.json
+gox cache clean        # delete the on-disk analysis cache
 ```
 
 Other `check` flags: `--no-cache` (bypass the incremental cache),
 `--no-baseline` (report baselined issues too), `--stats` (cache hits/misses
-and elapsed time on stderr), `--max-issues=N` (see [Output cap](#output-cap)).
+and elapsed time on stderr), `--max-issues=N` (see [Output cap](#output-cap)),
+`--json` (one JSON object on stdout: `issues`, `issue_count`, `hidden`,
+`load_errors`; exit codes stay the same).
+
+`gox check ../other/module/...` looks for `.gox-baseline.json` in that
+pattern's module, not only in the current directory.
 
 `gox build` / `gox test` always run the default `gox check` over `./...` of
 the current module; `[args]` are passed only to `go build` / `go test`.
@@ -73,20 +82,20 @@ Bug tier (default):
 
 | Analyzer | What it catches |
 |---|---|
-| `errcheck` | `error` return values dropped silently |
+| `errcheck` | dropped `error` results, including concrete types that implement `error` |
 | `forcetypeassert` | `x := v.(T)` without the comma-ok form |
-| `exhaustive` | non-exhaustive switch on iota enums or sealed interfaces |
+| `exhaustive` | non-exhaustive switch on an integer enum in this module, or on a sealed interface |
 | `bodyclose` | `*http.Response.Body` left unclosed |
-| `contextcheck` | `context.Background()`/`TODO()` inside a function that already receives a `context.Context` |
-| `errorlint` | `==` / type-assert / `%s` on errors instead of `errors.Is` / `errors.As` / `%w` |
-| `httptimeout` | HTTP shortcut calls, zero-Timeout `http.Client` (`var`/`new`/literal), or `http.Server` missing `ReadHeaderTimeout`/`WriteTimeout` |
+| `contextcheck` | `context.Background()`/`TODO()` inside a function or function literal that already receives a `context.Context` |
+| `errorlint` | `==` / type-assert / `%s`/`%v` (including `%[n]v` and `*`) on errors instead of `errors.Is` / `errors.As` / `%w` |
+| `httptimeout` | HTTP shortcut calls, `http.ListenAndServe` / `Serve` (and TLS variants), zero-Timeout `http.Client`, or `http.Server` missing `ReadHeaderTimeout`/`WriteTimeout` |
 
 Style tier (opt-in, `--all`):
 
 | Analyzer | What it catches |
 |---|---|
 | `shadow` | `:=` re-declaring an outer variable (except `ok`) |
-| `namedargs` | call sites passing 2+ args of the same basic type without `/* paramName */` comments (user code only — stdlib calls exempt) |
+| `namedargs` | call sites passing 2+ args of the same basic type without `/* paramName */` comments (user code only — stdlib calls exempt, including inside a dotless module) |
 | `noglobals` | mutable package-level `var` declarations |
 | `banany` | `any` / `interface{}` in declarations without justification |
 | `goroutine` | `go f()` without a visible `*errgroup.Group`, `sync.WaitGroup`, or `context.CancelFunc` |
@@ -287,6 +296,13 @@ production gate.
   prevents — `transfer(orderID, userID)` vs `transfer(userID, orderID)` —
   produces no compile error and no test failure, and is the single most
   common silent-bug class in unsupervised AI-written Go.
+
+## API
+
+`gox` the command is the supported interface. The packages under `pkg/`
+(`analyzer`, `loader`, `cache`, `baseline`) exist so the command can be
+built from them. They have no stability guarantee and may move under
+`internal/` before v1.
 
 ## Contributing
 

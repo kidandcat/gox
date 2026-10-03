@@ -340,3 +340,42 @@ func _() {
 		t.Fatalf("want 0 httptimeout issues for non-net/http package, got %d", len(got))
 	}
 }
+
+func TestBareServerFuncs(t *testing.T) {
+	const src = `package p
+import (
+	"net/http"
+	"time"
+)
+func _() error {
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		return err
+	}
+	if err := http.ListenAndServeTLS(":443", "c", "k", nil); err != nil {
+		return err
+	}
+	if err := http.Serve(nil, nil); err != nil {
+		return err
+	}
+	if err := http.ServeTLS(nil, "c", "k", nil); err != nil {
+		return err
+	}
+	s := &http.Server{
+		ReadHeaderTimeout: time.Second,
+		WriteTimeout:      time.Second,
+	}
+	return s.ListenAndServe()
+}`
+	got := onlyHTTPTimeout(analyzertest.Run(t, get(), src))
+	if len(got) != 4 {
+		for _, is := range got {
+			t.Logf("L%d: %s", is.Pos.Line, is.Message)
+		}
+		t.Fatalf("got %d httptimeout issues, want the four package-level server funcs", len(got))
+	}
+	for _, is := range got {
+		if is.Pos.Line < 7 || is.Pos.Line > 16 {
+			t.Fatalf("line %d is not one of the four package-level calls", is.Pos.Line)
+		}
+	}
+}

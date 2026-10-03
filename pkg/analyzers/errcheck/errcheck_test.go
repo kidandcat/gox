@@ -129,6 +129,26 @@ func _() {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestErrcheck_wrongErrorSignatureNotFlagged(t *testing.T) {
+	const src = `package p
+type weird interface{ Error() int }
+func f() weird { return nil }
+func _() { f() }`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestErrcheck_concreteErrorDropped(t *testing.T) {
+	const src = `package p
+type ValidationError struct{}
+func (ValidationError) Error() string { return "nope" }
+func validate() *ValidationError { return nil }
+func _() { validate() }`
+	issues := analyzertest.Run(t, get(), src)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+}
+
 func get() *analyzer.Analyzer {
 	for _, a := range analyzer.All() {
 		if a.Name == "errcheck" {

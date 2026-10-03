@@ -1,8 +1,10 @@
 // Package exhaustive enforces switch exhaustiveness over enums and sealed
 // interfaces defined in the analyzed packages.
 //
-// An *enum* is a named integer type with two or more `iota`-style constants
-// declared in the same package as the type.
+// An *enum* is a named integer type with two or more distinct constant
+// values, declared in the package under analysis or in another package of
+// the same module. Constants that share a value are one variant. Enums from
+// the standard library and from other modules are not checked.
 //
 // A *sealed interface* is one whose method set contains at least one
 // unexported method, meaning its concrete implementations must live in the
@@ -17,14 +19,11 @@ import (
 	_ "embed"
 	"fmt"
 	"go/ast"
-	"go/token"
 	"go/types"
 	"strings"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
-
-const annExhaustiveOK = "exhaustive-ok:"
 
 //go:embed exhaustive.md
 var explanation string // global-ok: populated at compile time by //go:embed, never mutated
@@ -39,8 +38,8 @@ func init() {
 }
 
 func run(pass *analyzer.Pass) {
-	enums := collectEnums(pass.Pkg)
 	sealed := collectSealedImpls(pass.Pkg)
+	enums := map[string][]*types.Const{}
 
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
@@ -70,10 +69,14 @@ func checkValueSwitch(pass *analyzer.Pass, file *ast.File, s *ast.SwitchStmt, en
 	key := typeKey(named)
 	members, ok := enums[key]
 	if !ok {
+		members = enumMembers(pass, named)
+		enums[key] = members
+	}
+	if len(members) == 0 {
 		return
 	}
 	have, hasDefault := caseValueNames(pass, s.Body)
-	if hasDefault && hasAnnotationOnSwitch(pass.Fset, file, s, annExhaustiveOK) {
+	if hasDefault && hasAnnotationOnSwitch(pass, file, s) {
 		return
 	}
 	missing := missingNames(members, have)
@@ -119,7 +122,7 @@ func checkTypeSwitch(pass *analyzer.Pass, file *ast.File, s *ast.TypeSwitchStmt,
 		return
 	}
 	have, hasDefault := caseTypes(pass, s.Body)
-	if hasDefault && hasAnnotationOnTypeSwitch(pass.Fset, file, s, annExhaustiveOK) {
+	if hasDefault && hasAnnotationOnTypeSwitch(pass, file, s) {
 		return
 	}
 	missing := missingTypes(impls, have)
@@ -134,37 +137,69 @@ func checkTypeSwitch(pass *analyzer.Pass, file *ast.File, s *ast.TypeSwitchStmt,
 	})
 }
 
-// collectEnums scans the package for named integer types with 2+ untyped/typed
-// constants of that type declared at package level.
-func collectEnums(pkg *types.Package) map[string][]*types.Const {
-	out := map[string][]*types.Const{}
-	if pkg == nil {
-		return out
+// enumMembers returns the constants of named when it is an integer enum
+// (two or more distinct values) declared in the package under analysis or
+// in another package of the same module. Enums from the standard library
+// and from third-party modules are ignored: a switch on reflect.Kind is not
+// what this rule is for, and dependency enums would light up existing code.
+//
+// Constants that share a value (const Default = Off) are one variant. The
+// caller reports a value as missing only when none of its names is covered.
+func enumMembers(pass *analyzer.Pass, named *types.Named) []*types.Const {
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return nil
+	}
+	pkg := obj.Pkg()
+	if pkg != pass.Pkg && !inModule(
+		/* pkgPath */ pkg.Path(),
+		/* modulePath */ pass.ModulePath,
+	) {
+		return nil
+	}
+	basic, ok := named.Underlying().(*types.Basic)
+	if !ok || basic.Info()&types.IsInteger == 0 {
+		return nil
 	}
 	scope := pkg.Scope()
+	var out []*types.Const
 	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		c, ok := obj.(*types.Const)
-		if !ok {
+		c, isConst := scope.Lookup(name).(*types.Const)
+		if !isConst || c.Val() == nil {
 			continue
 		}
-		named, ok := c.Type().(*types.Named)
-		if !ok {
+		ct, isNamed := c.Type().(*types.Named)
+		if !isNamed || ct.Obj() != obj {
 			continue
 		}
-		basic, ok := named.Underlying().(*types.Basic)
-		if !ok || basic.Info()&types.IsInteger == 0 {
-			continue
-		}
-		key := typeKey(named)
-		out[key] = append(out[key], c)
+		out = append(out, c)
 	}
-	for k, v := range out {
-		if len(v) < 2 {
-			delete(out, k)
-		}
+	if distinctValues(out) < 2 {
+		return nil
 	}
 	return out
+}
+
+func inModule(pkgPath, modulePath string) bool {
+	if modulePath == "" || pkgPath == "" {
+		return false
+	}
+	return pkgPath == modulePath || strings.HasPrefix(pkgPath, modulePath+"/")
+}
+
+func distinctValues(members []*types.Const) int {
+	seen := map[string]struct{}{}
+	for _, c := range members {
+		seen[valueKey(c)] = struct{}{}
+	}
+	return len(seen)
+}
+
+func valueKey(c *types.Const) string {
+	if c == nil || c.Val() == nil {
+		return ""
+	}
+	return c.Val().ExactString()
 }
 
 // collectSealedImpls scans the package for interface types with at least one
@@ -295,11 +330,21 @@ func caseTypes(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool)
 func typeString(t types.Type) string { return t.String() }
 
 func missingNames(members []*types.Const, have map[string]bool) []string {
+	covered := map[string]bool{}
+	for _, c := range members {
+		if have[c.Name()] {
+			covered[valueKey(c)] = true
+		}
+	}
+	reported := map[string]bool{}
 	var out []string
 	for _, c := range members {
-		if !have[c.Name()] {
-			out = append(out, c.Name())
+		k := valueKey(c)
+		if covered[k] || reported[k] {
+			continue
 		}
+		reported[k] = true
+		out = append(out, c.Name())
 	}
 	return out
 }
@@ -314,33 +359,21 @@ func missingTypes(impls []types.Type, have map[string]bool) []string {
 	return out
 }
 
-func hasAnnotationOnSwitch(fset *token.FileSet, file *ast.File, s *ast.SwitchStmt, prefix string) bool {
-	return defaultCaseAnnotation(fset, file, s.Body, prefix)
+func hasAnnotationOnSwitch(pass *analyzer.Pass, file *ast.File, s *ast.SwitchStmt) bool {
+	return defaultCaseAnnotation(pass, file, s.Body)
 }
-func hasAnnotationOnTypeSwitch(fset *token.FileSet, file *ast.File, s *ast.TypeSwitchStmt, prefix string) bool {
-	return defaultCaseAnnotation(fset, file, s.Body, prefix)
+func hasAnnotationOnTypeSwitch(pass *analyzer.Pass, file *ast.File, s *ast.TypeSwitchStmt) bool {
+	return defaultCaseAnnotation(pass, file, s.Body)
 }
 
-func defaultCaseAnnotation(fset *token.FileSet, file *ast.File, body *ast.BlockStmt, prefix string) bool {
+func defaultCaseAnnotation(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) bool {
 	for _, stmt := range body.List {
 		cc, ok := stmt.(*ast.CaseClause)
 		if !ok || cc.List != nil {
 			continue
 		}
-		line := fset.Position(cc.Pos()).Line
-		for _, cg := range file.Comments {
-			if fset.Position(cg.Pos()).Line == line {
-				for _, c := range cg.List {
-					text := strings.TrimPrefix(c.Text, "//")
-					text = strings.TrimSpace(text)
-					if strings.HasPrefix(text, prefix) {
-						rest := strings.TrimSpace(text[len(prefix):])
-						if rest != "" {
-							return true
-						}
-					}
-				}
-			}
+		if pass.HasLineAnnotation(file, cc.Pos(), analyzer.AnnExhaustiveOK) {
+			return true
 		}
 	}
 	return false

@@ -85,7 +85,7 @@ func run(pass *analyzer.Pass) {
 			if safe[ta] {
 				return true
 			}
-			if analyzer.HasLineAnnotation(pass.Fset, file, ta.Pos(), analyzer.AnnSafeIgnore) {
+			if pass.HasLineAnnotation(file, ta.Pos(), analyzer.AnnSafeIgnore) {
 				return true
 			}
 			msg := "type assertion without comma-ok will panic on mismatch"

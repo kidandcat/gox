@@ -121,15 +121,16 @@ func checkBlock(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
 		return
 	}
 
-	// For each bind, scan the rest of the body for `X.Body.Close()`.
+	// One walk for closes and one for returns, keyed by types.Object so a
+	// shadowed `resp` in an inner block cannot close the outer one.
+	closed := closedResponses(pass, body)
+	returned := returnedResponses(pass, body)
 	for _, b := range binds {
-		if analyzer.HasLineAnnotation(pass.Fset, file, b.ident.Pos(), analyzer.AnnSafeIgnore) {
+		if pass.HasLineAnnotation(file, b.ident.Pos(), analyzer.AnnSafeIgnore) {
 			continue
 		}
-		if hasBodyClose(body, b.ident.Name) {
-			continue
-		}
-		if isReturned(body, b.ident.Name) {
+		obj := pass.TypesInfo.ObjectOf(b.ident)
+		if obj != nil && (closed[obj] || returned[obj]) {
 			continue
 		}
 		pass.Report(analyzer.Issue{
@@ -157,14 +158,15 @@ func isHTTPResponsePointer(t types.Type) bool {
 	return obj.Pkg().Path() == "net/http" && obj.Name() == "Response"
 }
 
-func hasBodyClose(body *ast.BlockStmt, name string) bool {
-	found := false
+// closedResponses collects every object that is the receiver of `.Body.Close()`,
+// including closes written inside nested function literals (defer func(){ ... }).
+func closedResponses(pass *analyzer.Pass, body *ast.BlockStmt) map[types.Object]bool {
+	out := map[types.Object]bool{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		// Want: <name>.Body.Close()
 		sel, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok || sel.Sel.Name != "Close" {
 			return true
@@ -174,36 +176,38 @@ func hasBodyClose(body *ast.BlockStmt, name string) bool {
 			return true
 		}
 		id, ok := inner.X.(*ast.Ident)
-		if !ok || id.Name != name {
+		if !ok {
 			return true
 		}
-		found = true
-		return false
+		if obj := pass.TypesInfo.ObjectOf(id); obj != nil {
+			out[obj] = true
+		}
+		return true
 	})
-	return found
+	return out
 }
 
-// isReturned reports whether the identifier is returned as-is from the
-// function that owns body (not from a nested function literal), i.e. the
-// response is handed to the caller, who becomes responsible for closing it.
-func isReturned(body *ast.BlockStmt, name string) bool {
-	found := false
+// returnedResponses collects objects returned as-is from the function that
+// owns body. A return inside a nested literal does not hand the response to
+// this function's caller.
+func returnedResponses(pass *analyzer.Pass, body *ast.BlockStmt) map[types.Object]bool {
+	out := map[types.Object]bool{}
 	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
 		switch v := n.(type) {
 		case *ast.FuncLit:
 			return false
 		case *ast.ReturnStmt:
 			for _, r := range v.Results {
-				if id, ok := r.(*ast.Ident); ok && id.Name == name {
-					found = true
-					return false
+				id, ok := r.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if obj := pass.TypesInfo.ObjectOf(id); obj != nil {
+					out[obj] = true
 				}
 			}
 		}
 		return true
 	})
-	return found
+	return out
 }

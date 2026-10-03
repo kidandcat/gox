@@ -59,6 +59,9 @@ transfer(a, b, amount) // safe-ignore: caller validated argument order via runti
 ## Limitations
 
 - Standard-library calls are exempt — their conventions are well-known and
-  labeling them adds noise.
+  labeling them adds noise. "Standard library" is `go list`'s `Standard`
+  field, so a dotless module (`module myapp`) is user code and is checked.
+- Test files are not exempt. A swapped argument in a test is still a swapped
+  argument.
 - Same-type pairs of structs and named types are flagged; built-in numeric
   types like `int` / `string` / `bool` are the primary target.

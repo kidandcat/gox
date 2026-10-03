@@ -47,5 +47,15 @@ handler in a deferred closure is the opt-out.
 
 ## Limitations
 
-- `fmt.Print`/`Println`/`Printf` etc. are exempt — their error is almost always
-  irrelevant in practice.
+- A result is an error when its type implements `error` (`Error() string`).
+  That includes the builtin `error` and concrete types such as
+  `*ValidationError`. An interface whose method is only *named* `Error`
+  (`Error() int`) is not an error.
+- `fmt.Print`, `Println`, `Printf`, and the `Fprint` / `Fprintf` / `Fprintln`
+  family are exempt for every writer, including `*os.File` and
+  `http.ResponseWriter`. Dropping those errors is often a real bug; the
+  exemption matches the common `fmt.Fprintf(w, ...)` idiom and keeps the bug
+  tier from flooding handler code. Handle the error explicitly when it
+  matters.
+- `bytes.Buffer` and `strings.Builder` writes, and `hash.Hash.Write`, are
+  exempt because their documentation says the error is always nil.

@@ -1,13 +1,14 @@
 // Package contextcheck enforces context propagation.
 //
-// Inside a function declaration that has a `context.Context` parameter, any
-// call to `context.Background()` or `context.TODO()` is reported (including
-// inside closures in its body), since it discards the caller's cancellation
-// and deadline.
+// Inside a function or function literal that has a `context.Context`
+// parameter, any call to `context.Background()` or `context.TODO()` is
+// reported, since it discards the caller's cancellation and deadline.
+// A nested literal that receives its own context is checked on its own:
+// Background inside it is still reported, and it is not also blamed on the
+// outer function.
 //
-// The analyzer does not track which context is passed to other calls, and
-// function literals that receive their own `context.Context` parameter are
-// not treated as roots. Opt out with `// safe-ignore: <reason>`.
+// The analyzer does not track which context is passed to other calls.
+// Opt out with `// safe-ignore: <reason>`.
 package contextcheck
 
 import (
@@ -33,34 +34,47 @@ func init() {
 func run(pass *analyzer.Pass) {
 	for _, file := range pass.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
-			fn, ok := n.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				return true
-			}
-			if !hasContextParam(pass, fn.Type) {
-				return true
-			}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
+			switch fn := n.(type) {
+			case *ast.FuncDecl:
+				if fn.Body != nil && hasContextParam(pass, fn.Type) {
+					checkBody(pass, file, fn.Body)
 				}
-				if isContextBackgroundOrTODO(pass, call) {
-					if analyzer.HasLineAnnotation(pass.Fset, file, call.Pos(), analyzer.AnnSafeIgnore) {
-						return true
-					}
-					pass.Report(analyzer.Issue{
-						Analyzer: "contextcheck",
-						Pos:      pass.Fset.Position(call.Pos()),
-						Message:  "context.Background()/TODO() inside a function that already receives a context",
-						Hint:     "pass the incoming ctx through; if a fresh context is required, annotate with `// safe-ignore: <reason>`",
-					})
+			case *ast.FuncLit:
+				if fn.Body != nil && hasContextParam(pass, fn.Type) {
+					checkBody(pass, file, fn.Body)
 				}
-				return true
-			})
+			}
 			return true
 		})
 	}
+}
+
+func checkBody(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.FuncLit); ok {
+			// A nested literal with its own context is a separate root.
+			// One without a context is still this function's body: Background
+			// there drops the outer ctx.
+			if hasContextParam(pass, lit.Type) {
+				return false
+			}
+			return true
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isContextBackgroundOrTODO(pass, call) {
+			return true
+		}
+		if pass.HasLineAnnotation(file, call.Pos(), analyzer.AnnSafeIgnore) {
+			return true
+		}
+		pass.Report(analyzer.Issue{
+			Analyzer: "contextcheck",
+			Pos:      pass.Fset.Position(call.Pos()),
+			Message:  "context.Background()/TODO() inside a function that already receives a context",
+			Hint:     "pass the incoming ctx through; if a fresh context is required, annotate with `// safe-ignore: <reason>`",
+		})
+		return true
+	})
 }
 
 func hasContextParam(pass *analyzer.Pass, ft *ast.FuncType) bool {

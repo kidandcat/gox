@@ -31,9 +31,10 @@ type Stats struct {
 	PackagesTotal int
 	CacheHits     int
 	CacheMisses   int
-	// LoadErrors counts packages that could not be listed, parsed, or
-	// type-checked and were therefore NOT analyzed. A non-zero value means
-	// the issue list is incomplete; callers should fail closed.
+	// LoadErrors counts packages that could not be listed or parsed, and
+	// packages go/types rejected. A list or parse failure was not analyzed.
+	// A type-check failure was analyzed with partial info and was not cached.
+	// Either way the report is incomplete and callers should fail closed.
 	LoadErrors int
 }
 
@@ -147,6 +148,14 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 		return pkgResult{hit: false, loadErr: true}
 	}
 
+	// go list accepted the package but go/types did not. Analysis below sees
+	// a partial type info; count it as not fully checked and do not cache it.
+	partial := len(pkg.TypeErrors) > 0
+	if partial {
+		fmt.Fprintf(os.Stderr, "gox: %s: type check incomplete (%d error(s)); results are partial\n", info.ImportPath, len(pkg.TypeErrors))
+		fmt.Fprintf(os.Stderr, "gox: %s: %v\n", info.ImportPath, pkg.TypeErrors[0])
+	}
+
 	// Precompute generated-file set so analyzers can still see all symbols
 	// (needed for cross-file type info) but issues reported from generated
 	// files are dropped. ast.IsGenerated applies the exact Go convention
@@ -161,6 +170,24 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 		}
 	}
 
+	// Internal test variants re-typecheck production files so *_test.go can
+	// see unexported names. Those production files are already analyzed as
+	// the regular package; don't walk them again.
+	files := pkg.Files
+	if info.ForTest != "" {
+		kept := make([]*ast.File, 0, len(pkg.Files))
+		for _, f := range pkg.Files {
+			name := ""
+			if tf := pkg.Fset.File(f.Pos()); tf != nil {
+				name = tf.Name()
+			}
+			if info.ShouldReport(name) {
+				kept = append(kept, f)
+			}
+		}
+		files = kept
+	}
+
 	var pkgIssues []Issue
 	report := func(i Issue) {
 		if generated[i.Pos.Filename] {
@@ -172,20 +199,22 @@ func processPackage(info *loader.PackageInfo, analyzers []*Analyzer, opts RunOpt
 		pkgIssues = append(pkgIssues, i)
 	}
 	pass := &Pass{
-		Fset:      pkg.Fset,
-		Pkg:       pkg.Pkg,
-		TypesInfo: pkg.TypesInfo,
-		Files:     pkg.Files,
-		Report:    report,
+		Fset:       pkg.Fset,
+		Pkg:        pkg.Pkg,
+		TypesInfo:  pkg.TypesInfo,
+		Files:      files,
+		Report:     report,
+		ModulePath: info.ModulePath,
+		IsStdlib:   info.IsStdlib,
 	}
 	for _, a := range analyzers {
 		a.Run(pass)
 	}
 
-	if opts.UseCache && opts.CachePut != nil && cacheKey != "" {
+	if !partial && opts.UseCache && opts.CachePut != nil && cacheKey != "" {
 		if putErr := opts.CachePut(cacheKey, pkgIssues); putErr != nil {
 			fmt.Fprintf(os.Stderr, "gox cache: put %s: %v\n", info.ImportPath, putErr)
 		}
 	}
-	return pkgResult{issues: pkgIssues, hit: false}
+	return pkgResult{issues: pkgIssues, hit: false, loadErr: partial}
 }

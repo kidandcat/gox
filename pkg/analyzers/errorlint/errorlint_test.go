@@ -88,6 +88,42 @@ func _(err error) bool {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestErrorLint_explicitIndex(t *testing.T) {
+	const src = `package p
+import "fmt"
+func _(err error) error {
+	return fmt.Errorf("%[1]v", err)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+}
+
+func TestErrorLint_starWidthDoesNotBlameTheWidth(t *testing.T) {
+	const src = `package p
+import "fmt"
+func _(err error, n int) error {
+	return fmt.Errorf("%*d %v", 5, n, err)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d (%v)", len(issues), issues)
+	}
+	if issues[0].Pos.Column < 30 {
+		t.Fatalf("issue should land on err, not on the width: col %d", issues[0].Pos.Column)
+	}
+}
+
+func TestErrorLint_indexedNonErrorVerb(t *testing.T) {
+	const src = `package p
+import "fmt"
+func _(err error, n int) error {
+	return fmt.Errorf("%[1]d %v", err, n)
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
 func get() *analyzer.Analyzer {
 	for _, a := range analyzer.All() {
 		if a.Name == "errorlint" {

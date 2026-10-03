@@ -38,3 +38,6 @@ if err == io.EOF { ... } // safe-ignore: hot loop — io.EOF is never wrapped he
 - Sentinel comparison against `io.EOF` / `io.ErrUnexpectedEOF` is the most common
   legitimate case — those errors are documented to be returned directly, never
   wrapped.
+- Format strings are read with Go's own argument indexing: `%[1]v`, `%*d`,
+  and `%.*s` attribute the verb to the operand `fmt` would use. A non-literal
+  format string is not checked.

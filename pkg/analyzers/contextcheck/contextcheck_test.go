@@ -50,6 +50,46 @@ func _(ctx context.Context) {
 	analyzertest.AssertLines(t, issues, []int{5})
 }
 
+func TestContextCheck_literalWithOwnContextIsARoot(t *testing.T) {
+	const src = `package p
+import "context"
+func outer() {
+	_ = func(ctx context.Context) {
+		_ = ctx
+		_ = context.Background()
+	}
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{6})
+}
+
+func TestContextCheck_nestedLiteralReportedOnce(t *testing.T) {
+	const src = `package p
+import "context"
+func outer(ctx context.Context) {
+	_ = ctx
+	_ = func(ctx context.Context) {
+		_ = ctx
+		_ = context.Background()
+	}
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{7})
+}
+
+func TestContextCheck_nestedLiteralWithoutContextUsesOuter(t *testing.T) {
+	const src = `package p
+import "context"
+func outer(ctx context.Context) {
+	_ = ctx
+	_ = func() {
+		_ = context.Background()
+	}
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{6})
+}
+
 func TestContextCheck_noCtxParam_allowed(t *testing.T) {
 	const src = `package p
 import "context"

@@ -13,8 +13,6 @@ package banany
 import (
 	_ "embed"
 	"go/ast"
-	"go/token"
-	"strings"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
@@ -71,16 +69,10 @@ func checkFieldList(pass *analyzer.Pass, file *ast.File, fl *ast.FieldList, doc 
 		if !exprMentionsAny(field.Type) {
 			continue
 		}
-		if doc != nil && containsAnn(doc.List, analyzer.AnnAnyOK) {
-			continue
-		}
-		if field.Doc != nil && containsAnn(field.Doc.List, analyzer.AnnAnyOK) {
-			continue
-		}
-		if field.Comment != nil && containsAnn(field.Comment.List, analyzer.AnnAnyOK) {
-			continue
-		}
-		if hasAnnOnLine(pass.Fset, file, field.End(), analyzer.AnnAnyOK) {
+		if analyzer.HasAnnotation(doc, analyzer.AnnAnyOK) ||
+			analyzer.HasAnnotation(field.Doc, analyzer.AnnAnyOK) ||
+			analyzer.HasAnnotation(field.Comment, analyzer.AnnAnyOK) ||
+			pass.HasLineAnnotation(file, field.End(), analyzer.AnnAnyOK) {
 			continue
 		}
 		pass.Report(analyzer.Issue{
@@ -110,30 +102,4 @@ func exprMentionsAny(e ast.Expr) bool {
 		return !found
 	})
 	return found
-}
-
-func hasAnnOnLine(fset *token.FileSet, file *ast.File, pos token.Pos, prefix string) bool {
-	line := fset.Position(pos).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			if containsAnn(cg.List, prefix) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func containsAnn(comments []*ast.Comment, prefix string) bool {
-	for _, c := range comments {
-		text := strings.TrimPrefix(c.Text, "//")
-		text = strings.TrimSpace(text)
-		if strings.HasPrefix(text, prefix) {
-			rest := strings.TrimSpace(text[len(prefix):])
-			if rest != "" {
-				return true
-			}
-		}
-	}
-	return false
 }

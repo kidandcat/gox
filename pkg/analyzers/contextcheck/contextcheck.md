@@ -36,5 +36,10 @@ go cleanup(context.Background()) // safe-ignore: detached cleanup must outlive r
 
 ## Limitations
 
-- Only checks functions whose signature includes a `context.Context` parameter.
-  Top-level `main`/`init`/test helpers are not flagged.
+- A function or function literal is a root only when its own signature
+  includes a `context.Context` parameter. `main`, `init`, and helpers that
+  take no context are not flagged.
+- A nested literal that receives its own context is checked against that
+  parameter. `context.Background()` inside it is reported. A nested literal
+  with no context parameter is still part of the outer function: Background
+  there drops the outer context.

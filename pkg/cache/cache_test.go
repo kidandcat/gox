@@ -43,6 +43,35 @@ func TestKeyWithDeps_dependsOnDeps(t *testing.T) {
 	}
 }
 
+func TestClean_removesEveryVersion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", home)
+
+	dir, err := cache.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "entry"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "gox", "v1")
+	if err = os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(old, "stale"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err = cache.Clean(); err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "gox")); !os.IsNotExist(statErr) {
+		t.Fatalf("cache root still present: %v", statErr)
+	}
+	if err = cache.Clean(); err != nil {
+		t.Fatalf("cleaning a missing cache: %v", err)
+	}
+}
+
 func TestKey_missingFile(t *testing.T) {
 	if _, err := cache.Key("m/a", []string{filepath.Join(t.TempDir(), "nope.go")}, "v"); err == nil {
 		t.Fatal("expected an error for a missing file")

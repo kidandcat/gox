@@ -23,7 +23,6 @@
 package baseline
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -63,9 +62,10 @@ type File struct {
 // directory used to relativize file paths (every issue.Pos.Filename must be
 // inside moduleRoot, otherwise it's skipped).
 func Build(issues []analyzer.Issue, moduleRoot, analyzersVersion string) (*File, error) {
+	lines := newLineCache()
 	entries := make([]Entry, 0, len(issues))
 	for _, is := range issues {
-		entry, err := makeEntry(is, moduleRoot)
+		entry, err := makeEntry(is, moduleRoot, lines)
 		if err != nil {
 			// Skip issues we can't fingerprint — leaving them out of the baseline
 			// means they keep reporting until fixed, which is fine.
@@ -129,9 +129,10 @@ func (f *File) Filter(issues []analyzer.Issue, moduleRoot string) []analyzer.Iss
 	for _, e := range f.Entries {
 		keyCount[entryKey(e)]++
 	}
+	lines := newLineCache()
 	out := make([]analyzer.Issue, 0, len(issues))
 	for _, is := range issues {
-		entry, mkErr := makeEntry(is, moduleRoot)
+		entry, mkErr := makeEntry(is, moduleRoot, lines)
 		if mkErr != nil {
 			out = append(out, is)
 			continue
@@ -147,7 +148,7 @@ func (f *File) Filter(issues []analyzer.Issue, moduleRoot string) []analyzer.Iss
 }
 
 // makeEntry computes the Entry fingerprint for a single issue.
-func makeEntry(is analyzer.Issue, moduleRoot string) (Entry, error) {
+func makeEntry(is analyzer.Issue, moduleRoot string, lines *lineCache) (Entry, error) {
 	rel, relErr := relPath(
 		/* absPath */ is.Pos.Filename,
 		/* root */ moduleRoot,
@@ -155,11 +156,54 @@ func makeEntry(is analyzer.Issue, moduleRoot string) (Entry, error) {
 	if relErr != nil {
 		return Entry{}, relErr
 	}
-	h, hashErr := lineHash(is.Pos.Filename, is.Pos.Line)
+	h, hashErr := lines.hash(is.Pos.Filename, is.Pos.Line)
 	if hashErr != nil {
 		return Entry{}, hashErr
 	}
 	return Entry{File: rel, Analyzer: is.Analyzer, LineHash: h}, nil
+}
+
+// lineCache reads each source file once per Build or Filter. makeEntry used
+// to reopen the file for every issue.
+type lineCache struct {
+	files map[string][]string
+}
+
+func newLineCache() *lineCache {
+	return &lineCache{files: map[string][]string{}}
+}
+
+func (c *lineCache) hash(path string, line int) (string, error) {
+	if line < 1 {
+		return "", fmt.Errorf("invalid line number %d", line)
+	}
+	lines, err := c.load(path)
+	if err != nil {
+		return "", err
+	}
+	if line > len(lines) {
+		return "", fmt.Errorf("file has fewer than %d lines", line)
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(lines[line-1])))
+	return hex.EncodeToString(sum[:8]), nil
+}
+
+func (c *lineCache) load(path string) ([]string, error) {
+	if lines, ok := c.files[path]; ok {
+		return lines, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	// bufio.Scanner does not yield the empty trailing piece of a final newline.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	c.files[path] = lines
+	return lines, nil
 }
 
 func entryKey(e Entry) string {
@@ -177,32 +221,6 @@ func relPath(absPath, root string) (string, error) {
 		return "", fmt.Errorf("file %s is outside module root %s", absPath, root)
 	}
 	return filepath.ToSlash(rel), nil
-}
-
-// lineHash returns a short hex digest of the trimmed content of the given
-// 1-based line in `path`. Trimming makes the hash robust to indentation-only
-// changes (gofmt etc.).
-func lineHash(path string, line int) (string, error) {
-	if line < 1 {
-		return "", fmt.Errorf("invalid line number %d", line)
-	}
-	f, openErr := os.Open(path)
-	if openErr != nil {
-		return "", openErr
-	}
-	defer f.Close() // safe-ignore: read-only file
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for i := 1; scanner.Scan(); i++ {
-		if i == line {
-			sum := sha256.Sum256([]byte(strings.TrimSpace(scanner.Text())))
-			return hex.EncodeToString(sum[:8]), nil
-		}
-	}
-	if scanErr := scanner.Err(); scanErr != nil {
-		return "", scanErr
-	}
-	return "", fmt.Errorf("file has fewer than %d lines", line)
 }
 
 func sortEntries(es []Entry) {

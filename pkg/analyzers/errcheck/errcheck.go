@@ -74,7 +74,7 @@ func checkBareCall(pass *analyzer.Pass, file *ast.File, call *ast.CallExpr) {
 	if isBuiltinAllowedToDropErr(pass, call) {
 		return
 	}
-	if analyzer.HasLineAnnotation(pass.Fset, file, call.End(), analyzer.AnnSafeIgnore) {
+	if pass.HasLineAnnotation(file, call.End(), analyzer.AnnSafeIgnore) {
 		return
 	}
 	name := callee(pass, call)
@@ -130,7 +130,7 @@ func checkAssign(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt) {
 }
 
 func maybeReportBlankErr(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt, name string) {
-	if analyzer.HasLineAnnotation(pass.Fset, file, as.End(), analyzer.AnnSafeIgnore) {
+	if pass.HasLineAnnotation(file, as.End(), analyzer.AnnSafeIgnore) {
 		return
 	}
 	pass.Report(analyzer.Issue{
@@ -155,20 +155,30 @@ func returnsError(t types.Type) bool {
 	return false
 }
 
+// errorIface is the builtin error interface.
+// global-ok: read-only reference to a stdlib singleton; populated in init().
+var errorIface *types.Interface
+
+func init() {
+	obj := types.Universe.Lookup("error")
+	if obj == nil {
+		return
+	}
+	if iface, ok := obj.Type().Underlying().(*types.Interface); ok {
+		errorIface = iface
+	}
+}
+
+// isErrorType reports whether t is the builtin error type or any type whose
+// method set implements it, including concrete results such as
+// *ValidationError. An anonymous interface whose method happens to be named
+// Error but is not `Error() string` does not qualify.
 func isErrorType(t types.Type) bool {
-	if t == nil {
+	if t == nil || errorIface == nil {
 		return false
 	}
-	named, ok := t.(*types.Named)
-	if !ok {
-		// could be an alias or interface literal — check Underlying
-		if iface, ok := t.Underlying().(*types.Interface); ok {
-			return iface.NumMethods() == 1 && iface.Method(0).Name() == "Error"
-		}
-		return false
-	}
-	obj := named.Obj()
-	return obj != nil && obj.Pkg() == nil && obj.Name() == "error"
+	t = types.Unalias(t)
+	return types.Implements(t, errorIface)
 }
 
 // callee returns a short, printable name of the call's target.

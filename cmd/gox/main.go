@@ -9,6 +9,7 @@
 //	gox build [args...]               # gox check && go build
 //	gox test  [args...]               # gox check && go test
 //	gox baseline [packages...]        # snapshot current issues into .gox-baseline.json
+//	gox cache clean                   # delete the on-disk analysis cache
 //	gox install claude|grok           # install the agent Stop hook
 package main
 
@@ -17,6 +18,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +73,8 @@ func main() {
 		os.Exit(runInstall(args))
 	case "baseline":
 		os.Exit(runBaseline(args))
+	case "cache":
+		os.Exit(runCache(args))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -93,6 +97,7 @@ Usage:
   gox test  [args...]       run check (./...), then go test [args...]
   gox baseline              capture current issues into .gox-baseline.json
                             at the module root; check filters these out
+  gox cache clean           delete the on-disk analysis cache (all versions)
   gox install claude        install Stop hook into ~/.claude/settings.json (Claude Code)
   gox install grok          install Stop hook into ~/.grok/hooks/gox.json (Grok Build)
 
@@ -106,6 +111,7 @@ check flags:
                             env: GOX_MAX_ISSUES)
   --skip a,b,...            skip the named analyzers for this run
                             (env: GOX_SKIP; see "gox list" for names)
+  --json                    print one JSON object on stdout instead of text
 `)
 }
 
@@ -127,6 +133,7 @@ func runCheck(args []string) int {
 	maxIssues := fs.Int("max-issues", defaultMaxIssues(), "cap printed issues; 0 = unlimited (env: GOX_MAX_ISSUES)")
 	skip := fs.String("skip", os.Getenv("GOX_SKIP"), "comma-separated analyzer names to skip (env: GOX_SKIP)")
 	all := fs.Bool("all", os.Getenv("GOX_ALL") == "1", "also run the opt-in style-tier analyzers (env: GOX_ALL=1)")
+	asJSON := fs.Bool("json", false, "print issues as one JSON object on stdout")
 	if parseErr := fs.Parse(args); parseErr != nil {
 		return 2
 	}
@@ -152,7 +159,7 @@ func runCheck(args []string) int {
 	totalBeforeFilter := len(issues)
 	baselinedCount := 0
 	if !*noBaseline {
-		issues, baselinedCount = applyBaseline(issues)
+		issues, baselinedCount = applyBaseline(issues, patterns)
 	}
 
 	// Cap the printed issues so a package with hundreds of findings does not
@@ -165,15 +172,28 @@ func runCheck(args []string) int {
 		shown = issues[:*maxIssues]
 		hidden = len(issues) - *maxIssues
 	}
-	for _, is := range shown {
-		fmt.Printf("%s:%d:%d: %s: %s\n", is.Pos.Filename, is.Pos.Line, is.Pos.Column, is.Analyzer, is.Message)
-		if is.Hint != "" {
-			fmt.Printf("    hint: %s\n", is.Hint)
+	if *asJSON {
+		if writeErr := writeCheckJSON(
+			os.Stdout,
+			shown,
+			/* total */ len(issues),
+			hidden,
+			/* loadErrors */ runStats.LoadErrors,
+		); writeErr != nil {
+			fmt.Fprintln(os.Stderr, "gox:", writeErr)
+			return 2
 		}
-	}
-	if hidden > 0 {
-		fmt.Printf("... %d more issue(s) hidden (showing %d of %d; raise with --max-issues=N or GOX_MAX_ISSUES, 0 = all)\n",
-			hidden, len(shown), len(issues))
+	} else {
+		for _, is := range shown {
+			fmt.Printf("%s:%d:%d: %s: %s\n", is.Pos.Filename, is.Pos.Line, is.Pos.Column, is.Analyzer, is.Message)
+			if is.Hint != "" {
+				fmt.Printf("    hint: %s\n", is.Hint)
+			}
+		}
+		if hidden > 0 {
+			fmt.Printf("... %d more issue(s) hidden (showing %d of %d; raise with --max-issues=N or GOX_MAX_ISSUES, 0 = all)\n",
+				hidden, len(shown), len(issues))
+		}
 	}
 	if *stats {
 		fmt.Fprintf(os.Stderr, "gox: %d packages (hits=%d misses=%d) in %s\n",
@@ -187,7 +207,7 @@ func runCheck(args []string) int {
 	}
 	// Fail closed: a package that does not load is a package nobody checked.
 	if runStats.LoadErrors > 0 {
-		fmt.Fprintf(os.Stderr, "gox: %d package(s) failed to load and were not analyzed (see errors above)\n", runStats.LoadErrors)
+		fmt.Fprintf(os.Stderr, "gox: %d package(s) failed to load or type-check; the report is incomplete (see errors above)\n", runStats.LoadErrors)
 		return 2
 	}
 	if len(issues) > 0 {
@@ -290,8 +310,8 @@ func runAnalyzers(patterns []string, analyzers []*analyzer.Analyzer, noCache boo
 // applyBaseline loads .gox-baseline.json from the module root (if present)
 // and filters out matching issues. Returns the filtered issues and the count
 // removed.
-func applyBaseline(issues []analyzer.Issue) ([]analyzer.Issue, int) {
-	root, rootErr := baseline.ModuleRoot()
+func applyBaseline(issues []analyzer.Issue, patterns []string) ([]analyzer.Issue, int) {
+	root, rootErr := baseline.ModuleRootIn(patternDir(patterns))
 	if rootErr != nil {
 		return issues, 0
 	}
@@ -318,7 +338,7 @@ func runBaseline(args []string) int {
 		patterns = []string{"./..."}
 	}
 
-	root, rootErr := baseline.ModuleRoot()
+	root, rootErr := baseline.ModuleRootIn(patternDir(patterns))
 	if rootErr != nil {
 		fmt.Fprintln(os.Stderr, "gox baseline:", rootErr)
 		return 2
@@ -332,7 +352,7 @@ func runBaseline(args []string) int {
 		return 2
 	}
 	if runStats.LoadErrors > 0 {
-		fmt.Fprintf(os.Stderr, "gox baseline: %d package(s) failed to load; refusing to write an incomplete baseline\n", runStats.LoadErrors)
+		fmt.Fprintf(os.Stderr, "gox baseline: %d package(s) failed to load or type-check; refusing to write an incomplete baseline\n", runStats.LoadErrors)
 		return 2
 	}
 
@@ -353,6 +373,83 @@ func runBaseline(args []string) int {
 	fmt.Printf("captured %d issue(s) into %s\n", bf.IssueCount, path)
 	fmt.Println("from now on, `gox check` will report only NEW issues.")
 	fmt.Println("commit the file so the rest of the team gets the same view.")
+	return 0
+}
+
+// patternDir is the directory of the first package pattern when that pattern
+// is a filesystem path. `go env GOMOD` then runs there, so `gox check` from
+// outside the module still finds that module's baseline. Import paths and
+// an empty pattern list keep the current working directory.
+func patternDir(patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+	p := patterns[0]
+	p = strings.TrimSuffix(p, "/...")
+	if p == "" || p == "." || p == "..." {
+		return ""
+	}
+	if !filepath.IsAbs(p) && !strings.HasPrefix(p, ".") {
+		return ""
+	}
+	if st, err := os.Stat(p); err == nil && st.IsDir() {
+		return p
+	}
+	dir := filepath.Dir(p)
+	if st, err := os.Stat(dir); err == nil && st.IsDir() {
+		return dir
+	}
+	return ""
+}
+
+type checkJSONIssue struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Analyzer string `json:"analyzer"`
+	Message  string `json:"message"`
+	Hint     string `json:"hint,omitempty"`
+}
+
+type checkJSONReport struct {
+	Issues     []checkJSONIssue `json:"issues"`
+	IssueCount int              `json:"issue_count"`
+	Hidden     int              `json:"hidden"`
+	LoadErrors int              `json:"load_errors"`
+}
+
+func writeCheckJSON(w io.Writer, shown []analyzer.Issue, total, hidden, loadErrors int) error {
+	rep := checkJSONReport{
+		Issues:     make([]checkJSONIssue, 0, len(shown)),
+		IssueCount: total,
+		Hidden:     hidden,
+		LoadErrors: loadErrors,
+	}
+	for _, is := range shown {
+		rep.Issues = append(rep.Issues, checkJSONIssue{
+			File:     is.Pos.Filename,
+			Line:     is.Pos.Line,
+			Column:   is.Pos.Column,
+			Analyzer: is.Analyzer,
+			Message:  is.Message,
+			Hint:     is.Hint,
+		})
+	}
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(rep)
+}
+
+func runCache(args []string) int {
+	if len(args) != 1 || args[0] != "clean" {
+		fmt.Fprintln(os.Stderr, "usage: gox cache clean")
+		return 2
+	}
+	if err := cache.Clean(); err != nil {
+		fmt.Fprintln(os.Stderr, "gox cache:", err)
+		return 2
+	}
+	fmt.Println("gox: cache cleared")
 	return 0
 }
 

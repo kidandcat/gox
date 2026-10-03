@@ -186,7 +186,7 @@ func sharesLineWithPrev(fset *token.FileSet, prev, arg ast.Expr) bool {
 // column inside a call expression, so a line-based lookup is used rather than
 // a strict trailing one.
 func hasSafeIgnore(pass *analyzer.Pass, file *ast.File, pos token.Pos) bool {
-	return analyzer.HasLineAnnotation(pass.Fset, file, pos, analyzer.AnnSafeIgnore)
+	return pass.HasLineAnnotation(file, pos, analyzer.AnnSafeIgnore)
 }
 
 // calleeSignature returns the *types.Signature for the callee of a CallExpr,
@@ -227,19 +227,33 @@ func isStdlibCallee(pass *analyzer.Pass, call *ast.CallExpr) bool {
 	if obj == nil || obj.Pkg() == nil {
 		return false
 	}
-	path := obj.Pkg().Path()
-	// Heuristic: stdlib import paths never contain a dot in their first
-	// segment (they look like "fmt", "net/http", "encoding/json"). Third-party
-	// paths start with a domain ("github.com/...").
+	return isStdlibPath(pass, obj.Pkg().Path())
+}
+
+// isStdlibPath reports whether path is a standard-library import path.
+// The loader's IsStdlib (go list's Standard field) is authoritative: a
+// dotless module such as `module myapp` is user code even though its path
+// has no dot. Without that information, fall back to the dot heuristic, but
+// never treat the package under analysis as stdlib.
+func isStdlibPath(pass *analyzer.Pass, path string) bool {
+	if pass.IsStdlib != nil {
+		return pass.IsStdlib(path)
+	}
+	if pass.Pkg != nil {
+		pkgPath := pass.Pkg.Path()
+		if path == pkgPath || strings.HasPrefix(path, pkgPath+"/") {
+			return false
+		}
+	}
 	for i := 0; i < len(path); i++ {
 		if path[i] == '/' {
-			return true // reached a segment boundary without seeing a dot
+			return true
 		}
 		if path[i] == '.' {
 			return false
 		}
 	}
-	return true // single segment, no dot
+	return true
 }
 
 // compatible reports whether swapping two adjacent argument positions would

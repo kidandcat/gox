@@ -47,6 +47,23 @@ func _(c *http.Client, req *http.Request) {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestBodyClose_shadowedNameDoesNotCloseOuter(t *testing.T) {
+	const src = `package p
+import "net/http"
+func _(c *http.Client, req *http.Request) {
+	resp, err := c.Do(req)
+	if err != nil { return }
+	{
+		resp, err := c.Do(req)
+		if err != nil { return }
+		_ = resp.Body.Close()
+	}
+	_ = resp
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4})
+}
+
 func TestBodyClose_returnedToCaller(t *testing.T) {
 	const src = `package p
 import "net/http"

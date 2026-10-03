@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"strings"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
@@ -45,7 +44,7 @@ func run(pass *analyzer.Pass) {
 					if name.Name == "_" {
 						continue
 					}
-					if hasGlobalOKOnSpec(pass.Fset, file, vs) || hasGlobalOKOnGenDecl(pass.Fset, file, gd) {
+					if hasGlobalOKOnSpec(pass, file, vs) || hasGlobalOKOnGenDecl(pass, file, gd) {
 						continue
 					}
 					pass.Report(analyzer.Issue{
@@ -60,49 +59,13 @@ func run(pass *analyzer.Pass) {
 	}
 }
 
-func hasGlobalOKOnSpec(fset *token.FileSet, file *ast.File, vs *ast.ValueSpec) bool {
-	line := fset.Position(vs.End()).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			if containsAnn(cg.List, analyzer.AnnGlobalOK) {
-				return true
-			}
-		}
-	}
-	if vs.Doc != nil && containsAnn(vs.Doc.List, analyzer.AnnGlobalOK) {
-		return true
-	}
-	if vs.Comment != nil && containsAnn(vs.Comment.List, analyzer.AnnGlobalOK) {
-		return true
-	}
-	return false
+func hasGlobalOKOnSpec(pass *analyzer.Pass, file *ast.File, vs *ast.ValueSpec) bool {
+	return pass.HasLineAnnotation(file, vs.End(), analyzer.AnnGlobalOK) ||
+		analyzer.HasAnnotation(vs.Doc, analyzer.AnnGlobalOK) ||
+		analyzer.HasAnnotation(vs.Comment, analyzer.AnnGlobalOK)
 }
 
-func hasGlobalOKOnGenDecl(fset *token.FileSet, file *ast.File, gd *ast.GenDecl) bool {
-	if gd.Doc != nil && containsAnn(gd.Doc.List, analyzer.AnnGlobalOK) {
-		return true
-	}
-	line := fset.Position(gd.TokPos).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			if containsAnn(cg.List, analyzer.AnnGlobalOK) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func containsAnn(comments []*ast.Comment, prefix string) bool {
-	for _, c := range comments {
-		text := strings.TrimPrefix(c.Text, "//")
-		text = strings.TrimSpace(text)
-		if strings.HasPrefix(text, prefix) {
-			rest := strings.TrimSpace(text[len(prefix):])
-			if rest != "" {
-				return true
-			}
-		}
-	}
-	return false
+func hasGlobalOKOnGenDecl(pass *analyzer.Pass, file *ast.File, gd *ast.GenDecl) bool {
+	return analyzer.HasAnnotation(gd.Doc, analyzer.AnnGlobalOK) ||
+		pass.HasLineAnnotation(file, gd.TokPos, analyzer.AnnGlobalOK)
 }

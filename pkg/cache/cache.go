@@ -120,6 +120,32 @@ var binaryFingerprint = sync.OnceValue(func() string {
 
 // Dir returns the on-disk cache directory, creating it if necessary.
 func Dir() (string, error) {
+	base, baseErr := cacheBase()
+	if baseErr != nil {
+		return "", baseErr
+	}
+	dir := filepath.Join(base, Version)
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		return "", mkErr
+	}
+	return dir, nil
+}
+
+// Clean removes the whole gox cache, including entries written by older
+// versions. A missing cache is not an error.
+func Clean() error {
+	base, baseErr := cacheBase()
+	if baseErr != nil {
+		return baseErr
+	}
+	err := os.RemoveAll(base)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func cacheBase() (string, error) {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, homeErr := os.UserHomeDir()
@@ -128,11 +154,7 @@ func Dir() (string, error) {
 		}
 		base = filepath.Join(home, ".cache")
 	}
-	dir := filepath.Join(base, "gox", Version)
-	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
-		return "", mkErr
-	}
-	return dir, nil
+	return filepath.Join(base, "gox"), nil
 }
 
 // storedIssue is the on-disk representation. token.Position contains an

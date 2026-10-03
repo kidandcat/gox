@@ -25,6 +25,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strconv"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
@@ -83,7 +84,7 @@ func checkComparison(pass *analyzer.Pass, file *ast.File, b *ast.BinaryExpr) {
 	if !implementsError(tx) || !implementsError(ty) {
 		return
 	}
-	if hasSafeIgnoreOnLine(pass.Fset, file, b.Pos()) {
+	if pass.HasLineAnnotation(file, b.Pos(), analyzer.AnnSafeIgnore) {
 		return
 	}
 	pass.Report(analyzer.Issue{
@@ -106,7 +107,7 @@ func checkAssert(pass *analyzer.Pass, file *ast.File, ta *ast.TypeAssertExpr) {
 	// where SomeInterface is exactly `error` would be silly, but a more
 	// specific error interface is occasionally legitimate. We still flag
 	// because errors.As is the right tool either way.
-	if hasSafeIgnoreOnLine(pass.Fset, file, ta.Pos()) {
+	if pass.HasLineAnnotation(file, ta.Pos(), analyzer.AnnSafeIgnore) {
 		return
 	}
 	pass.Report(analyzer.Issue{
@@ -133,26 +134,22 @@ func checkErrorf(pass *analyzer.Pass, file *ast.File, call *ast.CallExpr) {
 	if !ok {
 		return
 	}
-	verbs := parseVerbs(format)
-	for i, v := range verbs {
-		argIdx := i + 1 // call.Args[0] is the format string
-		if argIdx >= len(call.Args) {
-			break
-		}
-		if v != 's' && v != 'v' {
+	for _, v := range errorVerbs(format) {
+		argIdx := v.index + 1 // call.Args[0] is the format string
+		if argIdx < 1 || argIdx >= len(call.Args) {
 			continue
 		}
-		argType := pass.TypesInfo.TypeOf(call.Args[argIdx])
-		if !implementsError(argType) {
+		arg := call.Args[argIdx]
+		if !implementsError(pass.TypesInfo.TypeOf(arg)) {
 			continue
 		}
-		if hasSafeIgnoreOnLine(pass.Fset, file, call.Pos()) {
+		if pass.HasLineAnnotation(file, call.Pos(), analyzer.AnnSafeIgnore) {
 			return
 		}
 		pass.Report(analyzer.Issue{
 			Analyzer: "errorlint",
-			Pos:      pass.Fset.Position(call.Args[argIdx].Pos()),
-			Message:  fmt.Sprintf("error formatted with %%%c — the cause is lost for errors.Is/As", v),
+			Pos:      pass.Fset.Position(arg.Pos()),
+			Message:  fmt.Sprintf("error formatted with %%%c — the cause is lost for errors.Is/As", v.verb),
 			Hint:     "use `%w` to wrap, so `errors.Is`/`errors.As` can still reach the inner error",
 		})
 		return
@@ -195,68 +192,128 @@ func isFmtErrorf(pass *analyzer.Pass, call *ast.CallExpr) bool {
 	return pn.Imported().Path() == "fmt"
 }
 
-// parseVerbs returns the verb character (e.g. 's', 'v', 'd', 'w') for each
-// fmt verb in `s`, in order of appearance. Flags and widths (%5.2f, %+v)
-// are skipped. Literal `%%` is skipped. Verbs we can't parse default to 0.
-func parseVerbs(s string) []byte {
-	out := make([]byte, 0, 4)
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
+// fmtVerb is one `%s` or `%v` in a format string. index is the 0-based
+// operand it consumes (the format string itself is not an operand).
+type fmtVerb struct {
+	verb  byte
+	index int
+}
+
+// errorVerbs returns every `%s` and `%v` in format, with the operand index
+// fmt would pass to that verb. Explicit indexes (`%[2]v`) and `*` width or
+// precision (each consumes an operand) follow the same rules as fmt.Printf.
+// `%w` is not returned: wrapping keeps the cause.
+func errorVerbs(format string) []fmtVerb {
+	var out []fmtVerb
+	argNum := 0
+	for i := 0; i < len(format); {
+		if format[i] != '%' {
+			i++
 			continue
 		}
 		i++
-		if i >= len(s) {
+		if i >= len(format) {
 			break
 		}
-		if s[i] == '%' {
-			continue // literal %%
+		if format[i] == '%' {
+			i++
+			continue
 		}
-		// skip flags
-		for i < len(s) && isFlag(s[i]) {
+		afterIndex := false
+		for i < len(format) && isFlag(format[i]) {
 			i++
 		}
-		// skip width
-		for i < len(s) && (isDigit(s[i]) || s[i] == '*') {
+		argNum, i, afterIndex = parseIndex(format, i, argNum)
+
+		if i < len(format) && format[i] == '*' {
 			i++
+			argNum++
+			afterIndex = false
+		} else {
+			i = skipNum(format, i)
 		}
-		// skip precision
-		if i < len(s) && s[i] == '.' {
+
+		if i < len(format) && format[i] == '.' {
 			i++
-			for i < len(s) && (isDigit(s[i]) || s[i] == '*') {
+			argNum, i, afterIndex = parseIndex(format, i, argNum)
+			if i < len(format) && format[i] == '*' {
 				i++
+				argNum++
+				afterIndex = false
+			} else {
+				i = skipNum(format, i)
 			}
 		}
-		if i >= len(s) {
+
+		if !afterIndex {
+			// The verb's own index is consumed here. Nothing after the verb
+			// reads the flag, so the bool is discarded.
+			argNum, i, _ = parseIndex(format, i, argNum)
+		}
+		if i >= len(format) {
 			break
 		}
-		out = append(out, s[i])
+		verb := format[i]
+		i++
+		if verb == '%' {
+			continue
+		}
+		used := argNum
+		argNum++
+		if verb == 's' || verb == 'v' {
+			out = append(out, fmtVerb{verb: verb, index: used})
+		}
 	}
 	return out
+}
+
+// parseIndex consumes a `[n]` argument index. n is 1-based; the returned
+// argNum is 0-based. found is false when format[i] is not '['.
+func parseIndex(format string, i, argNum int) (int, int, bool) {
+	if i >= len(format) || format[i] != '[' {
+		return argNum, i, false
+	}
+	j := i + 1
+	for j < len(format) && format[j] != ']' {
+		j++
+	}
+	if j >= len(format) {
+		return argNum, i + 1, false
+	}
+	n := 0
+	ok := j > i+1
+	for k := i + 1; k < j; k++ {
+		if format[k] < '0' || format[k] > '9' {
+			ok = false
+			break
+		}
+		n = n*10 + int(format[k]-'0')
+	}
+	if !ok || n <= 0 {
+		return argNum, j + 1, false
+	}
+	return n - 1, j + 1, true
+}
+
+func skipNum(s string, i int) int {
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i
 }
 
 func isFlag(c byte) bool {
 	return c == '+' || c == '-' || c == '#' || c == ' ' || c == '0'
 }
 
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
-
-// unquoteString removes the surrounding quotes of a string literal token.
-// Returns (value, true) for `"..."` and “...“; (..., false) otherwise.
+// unquoteString returns the string value of a Go string literal token.
 func unquoteString(lit string) (string, bool) {
 	if len(lit) < 2 {
 		return "", false
 	}
-	first, last := lit[0], lit[len(lit)-1]
-	if first == '"' && last == '"' {
-		// We don't process escapes — for our purposes %s/%v are not escaped.
-		return lit[1 : len(lit)-1], true
+	s, err := strconv.Unquote(lit)
+	if err != nil {
+		return "", false
 	}
-	if first == '`' && last == '`' {
-		return lit[1 : len(lit)-1], true
-	}
-	return "", false
-}
-
-func hasSafeIgnoreOnLine(fset *token.FileSet, file *ast.File, pos token.Pos) bool {
-	return analyzer.HasLineAnnotation(fset, file, pos, analyzer.AnnSafeIgnore)
+	return s, true
 }

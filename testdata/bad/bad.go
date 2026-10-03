@@ -218,3 +218,28 @@ func errorfBadVerb(err error) error {
 func errorfGood(err error) error {
 	return fmt.Errorf("oh no: %w", err) // ok
 }
+
+func errorfIndexed(err error) error {
+	return fmt.Errorf("%[1]v", err) // expect: errorlint
+}
+
+func errorfStar(err error, n int) error {
+	return fmt.Errorf("%*d %v", 5, n, err) // expect: errorlint
+}
+
+func serveNoTimeout() error {
+	return http.ListenAndServe(":8080", nil) // expect: httptimeout
+}
+
+func closureDropsContext() {
+	_ = func(ctx context.Context) {
+		_ = ctx
+		_ = context.Background() // expect: contextcheck
+	}
+}
+
+func validate() *customErr { return nil }
+
+func dropConcrete() {
+	validate() // expect: errcheck (concrete type implementing error)
+}

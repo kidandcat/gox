@@ -23,6 +23,7 @@ package loader
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // PackageInfo is the lightweight package metadata produced by List.
@@ -50,10 +53,28 @@ type PackageInfo struct {
 	// regular package.
 	ForTest string
 
+	// ModulePath is the module that contains this package. Empty outside a module.
+	ModulePath string
+
 	importMap      map[string]string
 	exports        map[string]string
 	deps           []string
+	stdlib         map[string]bool
 	reportTestOnly bool
+	// table is the gc importer shared by every package from the same go list.
+	// *types.Package values are only identical within one importer.
+	table *exportTable
+}
+
+// IsStdlib reports whether importPath is a standard-library package, according
+// to the Standard field of the `go list` that produced this info. Paths that
+// were not part of that list (including the package under analysis, when it
+// is not itself standard) report false.
+func (p *PackageInfo) IsStdlib(importPath string) bool {
+	if p == nil || p.stdlib == nil {
+		return false
+	}
+	return p.stdlib[importPath]
 }
 
 // AbsFiles returns the absolute paths of the package's .go files.
@@ -121,7 +142,11 @@ type listEntry struct {
 	Deps            []string
 	DepOnly         bool
 	ForTest         string
-	Error           *struct{ Err string }
+	Standard        bool
+	Module          *struct {
+		Path string
+	}
+	Error *struct{ Err string }
 }
 
 func (e listEntry) files() []string {
@@ -167,14 +192,24 @@ func ListWithErrors(patterns ...string) ([]*PackageInfo, []PackageError, error) 
 		patterns = []string{"./..."}
 	}
 	args := append([]string{"list", "-json", "-e", "-export", "-compiled", "-deps", "-test"}, patterns...)
-	cmd := exec.Command("go", args...)
+	// A stuck `go list` (module download, dead proxy) should fail the run
+	// instead of hanging the hook. Cold lists on large modules can take
+	// minutes; ten minutes is the ceiling, not the expected duration.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Stderr = os.Stderr
 	out, runErr := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, nil, fmt.Errorf("go list: %w", ctx.Err())
+	}
 	if runErr != nil {
 		return nil, nil, fmt.Errorf("go list: %w", runErr)
 	}
 
 	exports := map[string]string{}
+	table := newExportTable(exports)
+	stdlib := map[string]bool{}
 	var infos []*PackageInfo
 	var pkgErrs []PackageError
 	dec := json.NewDecoder(bytes.NewReader(out))
@@ -185,6 +220,9 @@ func ListWithErrors(patterns ...string) ([]*PackageInfo, []PackageError, error) 
 		}
 		if e.Export != "" {
 			exports[e.ImportPath] = e.Export
+		}
+		if e.Standard {
+			stdlib[e.ImportPath] = true
 		}
 		if e.Error != nil {
 			pkgErrs = append(pkgErrs, PackageError{ImportPath: e.ImportPath, Err: e.Error.Err})
@@ -197,15 +235,22 @@ func ListWithErrors(patterns ...string) ([]*PackageInfo, []PackageError, error) 
 		if len(files) == 0 {
 			continue
 		}
+		modulePath := ""
+		if e.Module != nil {
+			modulePath = e.Module.Path
+		}
 		info := &PackageInfo{
 			ImportPath:     e.ImportPath,
 			Dir:            e.Dir,
 			GoFiles:        files,
 			ForTest:        e.ForTest,
+			ModulePath:     modulePath,
 			importMap:      e.ImportMap,
 			exports:        exports,
 			deps:           e.Deps,
+			stdlib:         stdlib,
 			reportTestOnly: e.ForTest != "" && !strings.HasSuffix(e.Name, "_test"),
+			table:          table,
 		}
 		infos = append(infos, info)
 	}
@@ -240,7 +285,7 @@ func LoadPackage(info *PackageInfo) (*Package, error) {
 
 	var typeErrs []error
 	conf := &types.Config{
-		Importer: newExportImporter(fset, info.exports, info.importMap),
+		Importer: newExportImporter(info.table, info.importMap),
 		Error:    func(err error) { typeErrs = append(typeErrs, err) },
 	}
 	pkg, checkErr := conf.Check(checkPath(info.ImportPath), fset, files, tInfo)
@@ -267,20 +312,69 @@ func checkPath(importPath string) string {
 	return importPath
 }
 
+// exportTable is one gc importer for the export files of a single `go list`.
+// Packages are decoded once and then reused. They must stay in this importer:
+// a *types.Package copied into another importer has a different type identity,
+// so time.Duration inside context no longer matches time.Duration from time
+// and go/types rejects a program that compiles.
+//
+// A non-empty ImportMap (vendoring, the synthetic test main) gets a private
+// importer instead, so one package's path rewriting cannot poison the rest.
+type exportTable struct {
+	mu      sync.Mutex
+	exports map[string]string
+	gc      types.Importer
+}
+
+func newExportTable(exports map[string]string) *exportTable {
+	if exports == nil {
+		exports = map[string]string{}
+	}
+	t := &exportTable{exports: exports}
+	// Imported objects live in this FileSet, not in the FileSet of the package
+	// under analysis. Analyzers report positions of the package's own AST.
+	t.gc = importer.ForCompiler(token.NewFileSet(), "gc", func(path string) (io.ReadCloser, error) {
+		filename := exports[path]
+		if filename == "" {
+			return nil, fmt.Errorf("no export data for %s", path)
+		}
+		return os.Open(filename)
+	})
+	return t
+}
+
+// importPath decodes path once. gcimporter mutates its package map, so
+// concurrent LoadPackage calls must take turns. The lock covers only the
+// import, not the type-check of the package body.
+func (t *exportTable) importPath(path string) (*types.Package, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.gc.Import(path)
+}
+
 // exportImporter resolves imports from `go list -export` data. importer.Default
 // cannot see the module build cache, so type-aware rules would go blind on a
 // fresh clone (or any unbuilt local package) without this.
 type exportImporter struct {
-	gc        types.Importer
-	fallback  types.Importer
-	exports   map[string]string
-	importMap map[string]string
+	table    *exportTable
+	private  types.Importer
+	fallback types.Importer
 }
 
-func newExportImporter(fset *token.FileSet, exports, importMap map[string]string) types.Importer {
-	if exports == nil {
-		exports = map[string]string{}
+func newExportImporter(table *exportTable, importMap map[string]string) types.Importer {
+	if table == nil {
+		table = newExportTable(nil)
 	}
+	if len(importMap) > 0 {
+		return newPrivateImporter(table.exports, importMap)
+	}
+	return &exportImporter{
+		table:    table,
+		fallback: importer.Default(),
+	}
+}
+
+func newPrivateImporter(exports, importMap map[string]string) types.Importer {
 	lookup := func(path string) (io.ReadCloser, error) {
 		if mapped, ok := importMap[path]; ok {
 			path = mapped
@@ -292,10 +386,8 @@ func newExportImporter(fset *token.FileSet, exports, importMap map[string]string
 		return os.Open(filename)
 	}
 	return &exportImporter{
-		gc:        importer.ForCompiler(fset, "gc", lookup),
-		fallback:  importer.Default(),
-		exports:   exports,
-		importMap: importMap,
+		private:  importer.ForCompiler(token.NewFileSet(), "gc", lookup),
+		fallback: importer.Default(),
 	}
 }
 
@@ -303,17 +395,21 @@ func (e *exportImporter) Import(path string) (*types.Package, error) {
 	if path == "unsafe" {
 		return types.Unsafe, nil
 	}
-	resolved := path
-	if mapped, ok := e.importMap[path]; ok {
-		resolved = mapped
-	}
-	if e.exports[resolved] != "" || e.exports[path] != "" {
-		pkg, err := e.gc.Import(path)
-		if err == nil {
-			return pkg, nil
+	if e.private != nil {
+		pkg, err := e.private.Import(path)
+		if err != nil {
+			return e.fallback.Import(path)
 		}
+		return pkg, nil
 	}
-	return e.fallback.Import(path)
+	if e.table.exports[path] == "" {
+		return e.fallback.Import(path)
+	}
+	pkg, err := e.table.importPath(path)
+	if err != nil {
+		return e.fallback.Import(path)
+	}
+	return pkg, nil
 }
 
 // Load is a convenience wrapper that lists and fully loads every package

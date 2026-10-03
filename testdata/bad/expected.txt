@@ -22,3 +22,8 @@ bad.go:198:13: errorlint: comparison of error values with == / != breaks under w
 bad.go:210:7: errorlint: type assertion on an error value breaks under wrapping
 bad.go:210:7: forcetypeassert: type assertion without comma-ok will panic on mismatch
 bad.go:215:33: errorlint: error formatted with %v — the cause is lost for errors.Is/As
+bad.go:223:29: errorlint: error formatted with %v — the cause is lost for errors.Is/As
+bad.go:227:36: errorlint: error formatted with %v — the cause is lost for errors.Is/As
+bad.go:231:9: httptimeout: http.ListenAndServe uses an http.Server with no ReadHeaderTimeout or WriteTimeout
+bad.go:237:7: contextcheck: context.Background()/TODO() inside a function that already receives a context
+bad.go:244:2: errcheck: dropped error from validate

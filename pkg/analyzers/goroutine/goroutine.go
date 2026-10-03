@@ -18,12 +18,9 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
-	"strings"
 
 	"github.com/mentasystems/gox/pkg/analyzer"
 )
-
-const annGoroutineOK = "goroutine-ok:"
 
 //go:embed goroutine.md
 var explanation string // global-ok: populated at compile time by //go:embed, never mutated
@@ -51,7 +48,7 @@ func run(pass *analyzer.Pass) {
 				if !ok {
 					return true
 				}
-				if hasAnnOnLine(pass.Fset, file, gs.Pos(), annGoroutineOK) {
+				if pass.HasLineAnnotation(file, gs.Pos(), analyzer.AnnGoroutineOK) {
 					return true
 				}
 				if scopeHas {
@@ -147,25 +144,6 @@ func isLifecycleType(t types.Type) bool {
 		obj := named.Obj()
 		if obj != nil && obj.Pkg() != nil && obj.Pkg().Path() == "context" && obj.Name() == "CancelFunc" {
 			return true
-		}
-	}
-	return false
-}
-
-func hasAnnOnLine(fset *token.FileSet, file *ast.File, pos token.Pos, prefix string) bool {
-	line := fset.Position(pos).Line
-	for _, cg := range file.Comments {
-		if fset.Position(cg.Pos()).Line == line {
-			for _, c := range cg.List {
-				text := strings.TrimPrefix(c.Text, "//")
-				text = strings.TrimSpace(text)
-				if strings.HasPrefix(text, prefix) {
-					rest := strings.TrimSpace(text[len(prefix):])
-					if rest != "" {
-						return true
-					}
-				}
-			}
 		}
 	}
 	return false
