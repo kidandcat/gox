@@ -16,7 +16,7 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed forcetypeassert.md

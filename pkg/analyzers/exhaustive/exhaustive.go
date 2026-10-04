@@ -21,7 +21,7 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 const annExhaustiveOK = "exhaustive-ok:"

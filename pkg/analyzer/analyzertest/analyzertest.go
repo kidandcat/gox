@@ -15,7 +15,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 // Run parses and type-checks `src` (as a single file named "x.go" in package

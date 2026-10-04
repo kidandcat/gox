@@ -1,7 +1,7 @@
 # gox
 
-[![ci](https://github.com/mentasystems/gox/actions/workflows/ci.yml/badge.svg)](https://github.com/mentasystems/gox/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/mentasystems/gox)](https://github.com/mentasystems/gox/releases/latest)
+[![ci](https://github.com/kidandcat/gox/actions/workflows/ci.yml/badge.svg)](https://github.com/kidandcat/gox/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/kidandcat/gox)](https://github.com/kidandcat/gox/releases/latest)
 [![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
 Strict static analyzer for Go. Zero external dependencies — every rule is
@@ -28,7 +28,7 @@ most likely to introduce. Be loud, be opinionated, fail closed.
 ## Install
 
 ```sh
-go install github.com/mentasystems/gox/cmd/gox@latest
+go install github.com/kidandcat/gox/cmd/gox@latest
 ```
 
 ## Use
@@ -156,7 +156,7 @@ Two guards keep the hook's signal-to-noise high:
   inside the hooks modal (Ctrl+L or `/hooks`).
 
 The hook resolves `gox` via `$GOX_BIN` if set, otherwise `~/go/bin/gox`.
-Run `go install github.com/mentasystems/gox/cmd/gox@latest` to ensure it is
+Run `go install github.com/kidandcat/gox/cmd/gox@latest` to ensure it is
 present. Because Grok also reads `~/.claude/settings.json` for compatibility,
 `gox install claude` works for Grok users too; the native `grok` target is
 recommended when you only use Grok Build.

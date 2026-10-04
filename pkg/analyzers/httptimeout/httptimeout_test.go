@@ -3,10 +3,10 @@ package httptimeout_test
 import (
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	"github.com/mentasystems/gox/pkg/analyzer/analyzertest"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer/analyzertest"
 
-	_ "github.com/mentasystems/gox/pkg/analyzers/httptimeout"
+	_ "github.com/kidandcat/gox/pkg/analyzers/httptimeout"
 )
 
 func get() *analyzer.Analyzer {

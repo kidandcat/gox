@@ -38,8 +38,8 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/mentasystems/gox/internal/astutil"
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/internal/astutil"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed namedargs.md

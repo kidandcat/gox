@@ -16,7 +16,7 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed bodyclose.md

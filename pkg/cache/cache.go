@@ -27,7 +27,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 // Version is bumped whenever cache-incompatible changes are made (new

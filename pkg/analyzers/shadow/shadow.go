@@ -15,8 +15,8 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/mentasystems/gox/internal/astutil"
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/internal/astutil"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed shadow.md

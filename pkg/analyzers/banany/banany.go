@@ -16,7 +16,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed banany.md
