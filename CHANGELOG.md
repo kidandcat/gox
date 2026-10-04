@@ -7,15 +7,8 @@ this file existed are described on the
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-10-04
-
 ### Changed
 
-- **Breaking — module path:** the module is now `github.com/kidandcat/gox`
-  (the repository moved from `mentasystems/gox`). Install with
-  `go install github.com/kidandcat/gox/cmd/gox@latest`. Versions up to
-  v0.5.0 keep the old path `github.com/mentasystems/gox`; v0.6.0 and later
-  cannot be installed under it.
 - **Minimum Go is 1.26.8.** Go 1.25 is out of support, and `go 1.25.5` (the
   previous `go` line) ships a standard library affected by GO-2026-4602.
   `go install` now needs a toolchain that old.
@@ -101,3 +94,14 @@ this file existed are described on the
 - Docs: `gox baseline` and the remaining `check` flags are documented, the
   `safe-ignore` coverage list is complete, and stale package comments were
   fixed. ([#10](https://github.com/kidandcat/gox/pull/10))
+
+## [0.5.1] - 2026-10-04
+
+### Changed
+
+- **Module path:** the module is now `github.com/kidandcat/gox` (the
+  repository moved from `mentasystems/gox`). Install with
+  `go install github.com/kidandcat/gox/cmd/gox@latest`. No rule or behavior
+  changes from v0.5.0. v0.5.0 and earlier keep the old path
+  `github.com/mentasystems/gox`. Built from the `release/v0.5` branch; the
+  changes under [Unreleased] are not in it.
