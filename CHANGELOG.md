@@ -7,6 +7,12 @@ this file existed are described on the
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-04
+
+Module path stays `github.com/kidandcat/gox` (as in v0.5.1). Rules are
+stricter than v0.5.x; to adopt v0.6.0 on an existing codebase, run
+`gox baseline` once and commit `.gox-baseline.json`.
+
 ### Changed
 
 - **Minimum Go is 1.26.8.** Go 1.25 is out of support, and `go 1.25.5` (the
@@ -88,6 +94,9 @@ this file existed are described on the
   run on the minimum toolchain plus current stable. Also removed dead code
   (`entryHasGoxCommand`) and fixed gofmt drift.
   ([#7](https://github.com/kidandcat/gox/pull/7))
+- CLI tests cover the fail-closed path: `gox check` exits `2` and
+  `gox baseline` writes nothing when a package does not load (including a
+  `replace` that points at a missing directory).
 - An end-to-end golden test over `testdata/bad` exercises the full pipeline,
   and the stale `callsSwapOK` example was fixed.
   ([#9](https://github.com/kidandcat/gox/pull/9))
