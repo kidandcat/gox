@@ -7,8 +7,15 @@ this file existed are described on the
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-04
+
 ### Changed
 
+- **Breaking — module path:** the module is now `github.com/kidandcat/gox`
+  (the repository moved from `mentasystems/gox`). Install with
+  `go install github.com/kidandcat/gox/cmd/gox@latest`. Versions up to
+  v0.5.0 keep the old path `github.com/mentasystems/gox`; v0.6.0 and later
+  cannot be installed under it.
 - **Minimum Go is 1.26.8.** Go 1.25 is out of support, and `go 1.25.5` (the
   previous `go` line) ships a standard library affected by GO-2026-4602.
   `go install` now needs a toolchain that old.

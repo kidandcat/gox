@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	_ "github.com/mentasystems/gox/pkg/analyzers/errcheck"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	_ "github.com/kidandcat/gox/pkg/analyzers/errcheck"
 )
 
 const dropErr = "\nimport \"os\"\n\nfunc F() { os.Remove(\"x\") }\n"

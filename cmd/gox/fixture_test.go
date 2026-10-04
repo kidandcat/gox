@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 // global-ok: standard `go test -update` golden-file flag.

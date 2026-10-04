@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	"github.com/mentasystems/gox/pkg/cache"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/cache"
 )
 
 func TestKeyWithDeps_dependsOnDeps(t *testing.T) {

@@ -33,7 +33,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 // Filename is the canonical name stored at the project root.

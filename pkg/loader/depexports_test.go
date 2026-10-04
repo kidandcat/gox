@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/loader"
+	"github.com/kidandcat/gox/pkg/loader"
 )
 
 func depExportsOf(t *testing.T, importPath string) []string {

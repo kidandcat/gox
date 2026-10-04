@@ -3,8 +3,8 @@ package bodyclose_test
 import (
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	"github.com/mentasystems/gox/pkg/analyzer/analyzertest"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer/analyzertest"
 )
 
 func TestBodyClose_leak(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/loader"
+	"github.com/kidandcat/gox/pkg/loader"
 )
 
 // writeModule creates a throwaway module under t.TempDir and chdirs into it.

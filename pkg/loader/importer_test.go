@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/loader"
+	"github.com/kidandcat/gox/pkg/loader"
 )
 
 // context.WithTimeout and time.Second must be the same time.Duration.

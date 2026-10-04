@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	"github.com/mentasystems/gox/pkg/analyzer/analyzertest"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer/analyzertest"
 )
 
 func TestExhaustive_enumMissingCase(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 	_ "embed"
 	"go/ast"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed forcetypeassert.md

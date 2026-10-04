@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/mentasystems/gox/pkg/loader"
+	"github.com/kidandcat/gox/pkg/loader"
 )
 
 // RunOptions controls the behavior of Run.

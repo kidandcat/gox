@@ -28,7 +28,7 @@ most likely to introduce. Be loud, be opinionated, fail closed.
 ## Install
 
 ```sh
-go install github.com/mentasystems/gox/cmd/gox@latest
+go install github.com/kidandcat/gox/cmd/gox@latest
 ```
 
 Requires **Go 1.26.8** or newer. Go 1.25 is out of support, and the 1.25.5
@@ -186,7 +186,7 @@ Two guards keep the hook's signal-to-noise high:
   inside the hooks modal (Ctrl+L or `/hooks`).
 
 The hook resolves `gox` via `$GOX_BIN` if set, otherwise `~/go/bin/gox`.
-Run `go install github.com/mentasystems/gox/cmd/gox@latest` to ensure it is
+Run `go install github.com/kidandcat/gox/cmd/gox@latest` to ensure it is
 present. Because Grok also reads `~/.claude/settings.json` for compatibility,
 `gox install claude` works for Grok users too; the native `grok` target is
 recommended when you only use Grok Build.

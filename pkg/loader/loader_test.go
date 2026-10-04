@@ -4,18 +4,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/loader"
+	"github.com/kidandcat/gox/pkg/loader"
 )
 
 func TestList_includesExternalTests(t *testing.T) {
-	infos, err := loader.List("github.com/mentasystems/gox/pkg/analyzers/errcheck")
+	infos, err := loader.List("github.com/kidandcat/gox/pkg/analyzers/errcheck")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	var sawPkg, sawTest, sawTestMain bool
 	for _, info := range infos {
 		switch {
-		case info.ImportPath == "github.com/mentasystems/gox/pkg/analyzers/errcheck":
+		case info.ImportPath == "github.com/kidandcat/gox/pkg/analyzers/errcheck":
 			sawPkg = true
 		case strings.Contains(info.ImportPath, "errcheck_test"):
 			sawTest = true
@@ -50,13 +50,13 @@ func TestLoadPackage_localImportHasTypes(t *testing.T) {
 	// errcheck imports pkg/analyzer (a local package). Without -export,
 	// importer.Default() cannot see the module build cache and TypesInfo
 	// goes blind. After this load, selections on analyzer types must resolve.
-	infos, err := loader.List("github.com/mentasystems/gox/pkg/analyzers/errcheck")
+	infos, err := loader.List("github.com/kidandcat/gox/pkg/analyzers/errcheck")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	var info *loader.PackageInfo
 	for _, i := range infos {
-		if i.ImportPath == "github.com/mentasystems/gox/pkg/analyzers/errcheck" && i.ForTest == "" {
+		if i.ImportPath == "github.com/kidandcat/gox/pkg/analyzers/errcheck" && i.ForTest == "" {
 			info = i
 			break
 		}
@@ -80,7 +80,7 @@ func TestLoadPackage_localImportHasTypes(t *testing.T) {
 	// Confirm an import of the local analyzer package resolved.
 	foundAnalyzer := false
 	for _, imp := range pkg.Pkg.Imports() {
-		if imp.Path() == "github.com/mentasystems/gox/pkg/analyzer" {
+		if imp.Path() == "github.com/kidandcat/gox/pkg/analyzer" {
 			foundAnalyzer = true
 			if !imp.Complete() {
 				t.Fatal("imported pkg/analyzer is incomplete — export data missing")
@@ -93,13 +93,13 @@ func TestLoadPackage_localImportHasTypes(t *testing.T) {
 }
 
 func TestAbsFiles_joinsRelative(t *testing.T) {
-	infos, err := loader.List("github.com/mentasystems/gox/pkg/loader")
+	infos, err := loader.List("github.com/kidandcat/gox/pkg/loader")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	var info *loader.PackageInfo
 	for _, i := range infos {
-		if i.ImportPath == "github.com/mentasystems/gox/pkg/loader" && i.ForTest == "" {
+		if i.ImportPath == "github.com/kidandcat/gox/pkg/loader" && i.ForTest == "" {
 			info = i
 			break
 		}

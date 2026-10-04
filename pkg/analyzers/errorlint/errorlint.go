@@ -27,7 +27,7 @@ import (
 	"go/types"
 	"strconv"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/analyzer"
 )
 
 //go:embed errorlint.md

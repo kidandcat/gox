@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mentasystems/gox/pkg/analyzer"
-	"github.com/mentasystems/gox/pkg/baseline"
+	"github.com/kidandcat/gox/pkg/analyzer"
+	"github.com/kidandcat/gox/pkg/baseline"
 )
 
 func TestModuleRoot_findsThisModule(t *testing.T) {
@@ -20,7 +20,7 @@ func TestModuleRoot_findsThisModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "module github.com/mentasystems/gox") {
+	if !strings.Contains(string(data), "module github.com/kidandcat/gox") {
 		t.Fatalf("ModuleRoot %s is not the gox module", root)
 	}
 }
