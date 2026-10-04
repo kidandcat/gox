@@ -1,7 +1,7 @@
 # gox
 
-[![ci](https://github.com/mentasystems/gox/actions/workflows/ci.yml/badge.svg)](https://github.com/mentasystems/gox/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/mentasystems/gox)](https://github.com/mentasystems/gox/releases/latest)
+[![ci](https://github.com/kidandcat/gox/actions/workflows/ci.yml/badge.svg)](https://github.com/kidandcat/gox/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/kidandcat/gox)](https://github.com/kidandcat/gox/releases/latest)
 [![license](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
 Strict static analyzer for Go. Zero external dependencies — every rule is
