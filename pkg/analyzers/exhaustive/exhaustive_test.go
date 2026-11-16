@@ -57,6 +57,47 @@ func _(c Color) string {
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
+func TestExhaustive_defaultWithBodyHandlesRest(t *testing.T) {
+	const src = `package p
+
+type Color int
+const (
+	Red Color = iota
+	Green
+	Blue
+)
+
+type Shape interface{ shape() }
+type Sq struct{}
+type Ci struct{}
+func (Sq) shape() {}
+func (Ci) shape() {}
+
+func paint() {}
+
+func _(c Color, s Shape) string {
+	switch c {
+	case Red:
+		return "r"
+	default:
+		paint()
+	}
+	switch s.(type) {
+	case Sq:
+	default:
+		paint()
+	}
+	switch c {
+	case Red:
+		paint()
+	default:
+	}
+	return ""
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{30})
+}
+
 func TestExhaustive_defaultWithAnnotation(t *testing.T) {
 	const src = `package p
 

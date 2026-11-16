@@ -85,7 +85,7 @@ func Run(patterns []string, analyzers []*Analyzer, opts RunOptions) ([]Issue, St
 		}()
 	}
 
-	go func() {
+	go func() { // goroutine-ok: ends after sending every job; the workers drain jobs to the end
 		for _, info := range infos {
 			jobs <- info
 		}

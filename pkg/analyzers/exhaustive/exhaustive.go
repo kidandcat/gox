@@ -11,8 +11,10 @@
 // same package as the interface. Type switches over such an interface must
 // list every concrete implementer.
 //
-// To accept a partial switch, add `default: ...` AND a `// exhaustive-ok:`
-// annotation on the same line as `default`.
+// A `default` clause with at least one statement handles the remaining
+// values on purpose and makes the switch exhaustive. An empty `default:`
+// silently drops them, like no default at all; it needs a
+// `// exhaustive-ok: <reason>` annotation on the same line.
 package exhaustive
 
 import (
@@ -75,8 +77,8 @@ func checkValueSwitch(pass *analyzer.Pass, file *ast.File, s *ast.SwitchStmt, en
 	if len(members) == 0 {
 		return
 	}
-	have, hasDefault := caseValueNames(pass, s.Body)
-	if hasDefault && hasAnnotationOnSwitch(pass, file, s) {
+	have, hasDefault, handled := caseValueNames(pass, s.Body)
+	if handled || (hasDefault && hasAnnotationOnSwitch(pass, file, s)) {
 		return
 	}
 	missing := missingNames(members, have)
@@ -87,7 +89,7 @@ func checkValueSwitch(pass *analyzer.Pass, file *ast.File, s *ast.SwitchStmt, en
 		Analyzer: "exhaustive",
 		Pos:      pass.Fset.Position(s.Switch),
 		Message:  fmt.Sprintf("non-exhaustive switch on enum %s: missing %s", named.Obj().Name(), strings.Join(missing, ", ")),
-		Hint:     "add cases for every constant, or accept partial coverage with `default: // exhaustive-ok: <reason>`",
+		Hint:     "add cases for every constant, or a `default:` that handles the rest (an empty one needs `// exhaustive-ok: <reason>`)",
 	})
 }
 
@@ -121,8 +123,8 @@ func checkTypeSwitch(pass *analyzer.Pass, file *ast.File, s *ast.TypeSwitchStmt,
 	if !ok {
 		return
 	}
-	have, hasDefault := caseTypes(pass, s.Body)
-	if hasDefault && hasAnnotationOnTypeSwitch(pass, file, s) {
+	have, hasDefault, handled := caseTypes(pass, s.Body)
+	if handled || (hasDefault && hasAnnotationOnTypeSwitch(pass, file, s)) {
 		return
 	}
 	missing := missingTypes(impls, have)
@@ -133,7 +135,7 @@ func checkTypeSwitch(pass *analyzer.Pass, file *ast.File, s *ast.TypeSwitchStmt,
 		Analyzer: "exhaustive",
 		Pos:      pass.Fset.Position(s.Switch),
 		Message:  fmt.Sprintf("non-exhaustive type switch on sealed interface %s: missing %s", named.Obj().Name(), strings.Join(missing, ", ")),
-		Hint:     "add a case for every implementer, or accept partial coverage with `default: // exhaustive-ok: <reason>`",
+		Hint:     "add a case for every implementer, or a `default:` that handles the rest (an empty one needs `// exhaustive-ok: <reason>`)",
 	})
 }
 
@@ -265,16 +267,18 @@ func typeKey(n *types.Named) string {
 	return obj.Pkg().Path() + "." + obj.Name()
 }
 
-func caseValueNames(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool) {
+// caseValueNames returns the constants named in cases, whether the switch
+// has a default clause, and whether that default has a body.
+func caseValueNames(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool, bool) {
 	have := map[string]bool{}
-	hasDefault := false
+	hasDefault, handled := false, false
 	for _, stmt := range body.List {
 		cc, ok := stmt.(*ast.CaseClause)
 		if !ok {
 			continue
 		}
 		if cc.List == nil {
-			hasDefault = true
+			hasDefault, handled = true, len(cc.Body) > 0
 			continue
 		}
 		for _, e := range cc.List {
@@ -291,7 +295,7 @@ func caseValueNames(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, 
 			}
 		}
 	}
-	return have, hasDefault
+	return have, hasDefault, handled
 }
 
 func unwrapIdent(e ast.Expr) (*ast.Ident, bool) {
@@ -304,16 +308,16 @@ func unwrapIdent(e ast.Expr) (*ast.Ident, bool) {
 	return nil, false
 }
 
-func caseTypes(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool) {
+func caseTypes(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool, bool) {
 	have := map[string]bool{}
-	hasDefault := false
+	hasDefault, handled := false, false
 	for _, stmt := range body.List {
 		cc, ok := stmt.(*ast.CaseClause)
 		if !ok {
 			continue
 		}
 		if cc.List == nil {
-			hasDefault = true
+			hasDefault, handled = true, len(cc.Body) > 0
 			continue
 		}
 		for _, e := range cc.List {
@@ -324,7 +328,7 @@ func caseTypes(pass *analyzer.Pass, body *ast.BlockStmt) (map[string]bool, bool)
 			have[typeString(t)] = true
 		}
 	}
-	return have, hasDefault
+	return have, hasDefault, handled
 }
 
 func typeString(t types.Type) string { return t.String() }

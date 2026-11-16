@@ -1,12 +1,16 @@
 // Package goroutine reports `go` statements whose lifetime is not bound to a
 // visible coordination primitive.
 //
-// A `go funcCall(...)` is accepted when the enclosing function (anywhere in
-// its lexical scope up to and including the go statement) defines or
-// receives any of the following:
+// A `go` statement is accepted when the statement itself (the call, its
+// arguments, or the body of a `go func() {...}()` literal) refers to:
 //   - a variable of type *errgroup.Group (golang.org/x/sync/errgroup)
 //   - a variable of type sync.WaitGroup
-//   - a context.CancelFunc (i.e. a cancellation handle exists)
+//   - a context.CancelFunc
+//   - a context.Context, when the enclosing function also holds a
+//     context.CancelFunc (`ctx, cancel := context.WithCancel(...)`)
+//
+// A primitive that merely exists in the function does not count: a
+// WaitGroup that tracks other goroutines says nothing about this one.
 //
 // The intent is not to ban goroutines but to require that something in the
 // scope is responsible for their lifecycle. To accept a fire-and-forget
@@ -42,7 +46,7 @@ func run(pass *analyzer.Pass) {
 			if !ok || fn.Body == nil {
 				return true
 			}
-			scopeHas := scopeHasLifecycleVar(pass, fn.Type, fn.Body)
+			hasCancel := scopeHasCancel(pass, fn.Type, fn.Body)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				gs, ok := n.(*ast.GoStmt)
 				if !ok {
@@ -51,13 +55,13 @@ func run(pass *analyzer.Pass) {
 				if pass.HasLineAnnotation(file, gs.Pos(), analyzer.AnnGoroutineOK) {
 					return true
 				}
-				if scopeHas {
+				if bound(pass, gs, hasCancel) {
 					return true
 				}
 				pass.Report(analyzer.Issue{
 					Analyzer: "goroutine",
 					Pos:      pass.Fset.Position(gs.Pos()),
-					Message:  "goroutine spawned without a visible *errgroup.Group, sync.WaitGroup, or CancelFunc in scope",
+					Message:  "goroutine does not use an *errgroup.Group, sync.WaitGroup, CancelFunc, or cancellable context",
 					Hint:     "wrap with errgroup.WithContext / use sync.WaitGroup / capture context.WithCancel, or annotate with `// goroutine-ok: <reason>`",
 				})
 				return true
@@ -67,13 +71,44 @@ func run(pass *analyzer.Pass) {
 	}
 }
 
-// scopeHasLifecycleVar reports whether the function parameter list or body
-// declares any value whose type is one of the recognised lifecycle primitives.
-func scopeHasLifecycleVar(pass *analyzer.Pass, ft *ast.FuncType, body *ast.BlockStmt) bool {
+// bound reports whether the go statement refers to a lifecycle primitive,
+// or to a context.Context while the function holds a CancelFunc.
+func bound(pass *analyzer.Pass, gs *ast.GoStmt, hasCancel bool) bool {
+	found := false
+	ast.Inspect(gs.Call, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || found {
+			return !found
+		}
+		v, ok := pass.TypesInfo.ObjectOf(id).(*types.Var)
+		if !ok {
+			return true
+		}
+		if isLifecycleType(v.Type()) || (hasCancel && isContext(v.Type())) {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+func isContext(t types.Type) bool {
+	n, ok := t.(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "context" && n.Obj().Name() == "Context"
+}
+
+func isCancelFunc(t types.Type) bool {
+	n, ok := t.(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "context" && n.Obj().Name() == "CancelFunc"
+}
+
+// scopeHasCancel reports whether the function parameter list or body
+// declares a context.CancelFunc.
+func scopeHasCancel(pass *analyzer.Pass, ft *ast.FuncType, body *ast.BlockStmt) bool {
 	// Check parameters.
 	if ft.Params != nil {
 		for _, p := range ft.Params.List {
-			if t := pass.TypesInfo.TypeOf(p.Type); isLifecycleType(t) {
+			if t := pass.TypesInfo.TypeOf(p.Type); t != nil && isCancelFunc(t) {
 				return true
 			}
 		}
@@ -83,16 +118,15 @@ func scopeHasLifecycleVar(pass *analyzer.Pass, ft *ast.FuncType, body *ast.Block
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch d := n.(type) {
 		case *ast.AssignStmt:
-			for i, lhs := range d.Lhs {
+			for _, lhs := range d.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok {
 					if obj := pass.TypesInfo.Defs[id]; obj != nil {
-						if isLifecycleType(obj.Type()) {
+						if isCancelFunc(obj.Type()) {
 							found = true
 							return false
 						}
 					}
 				}
-				_ = i
 			}
 		case *ast.DeclStmt:
 			gd, ok := d.Decl.(*ast.GenDecl)
@@ -103,7 +137,7 @@ func scopeHasLifecycleVar(pass *analyzer.Pass, ft *ast.FuncType, body *ast.Block
 				vs := spec.(*ast.ValueSpec) // safe-ignore: GenDecl.Tok == VAR guarantees ValueSpec
 				for _, name := range vs.Names {
 					if obj := pass.TypesInfo.Defs[name]; obj != nil {
-						if isLifecycleType(obj.Type()) {
+						if isCancelFunc(obj.Type()) {
 							found = true
 							return false
 						}

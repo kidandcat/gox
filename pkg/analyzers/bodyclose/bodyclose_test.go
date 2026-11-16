@@ -121,6 +121,40 @@ func _() {
 	}
 }
 
+func TestBodyClose_helperHandOff(t *testing.T) {
+	const src = `package p
+import (
+	"fmt"
+	"io"
+	"net/http"
+)
+func drain(r *http.Response) { _, _ = io.Copy(io.Discard, r.Body); _ = r.Body.Close() }
+func a() {
+	resp, err := http.Get("http://x")
+	if err != nil {
+		return
+	}
+	defer drain(resp)
+}
+func b() {
+	resp, err := http.Get("http://x")
+	if err != nil {
+		return
+	}
+	fmt.Println(resp)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	var lines []int
+	for _, is := range issues {
+		if is.Analyzer == "bodyclose" {
+			lines = append(lines, is.Pos.Line)
+		}
+	}
+	if len(lines) != 1 || lines[0] != 16 {
+		t.Fatalf("want one bodyclose issue on line 16 (stdlib fmt.Println does not hand off), got %v", lines)
+	}
+}
+
 func TestBodyClose_deferCloseIsFine(t *testing.T) {
 	const src = `package p
 import "net/http"

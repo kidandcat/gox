@@ -117,6 +117,16 @@ func HasLineAnnotation(fset *token.FileSet, file *ast.File, pos token.Pos, prefi
 	return textsHavePrefix(commentTextsOnLine(fset, file, fset.Position(pos).Line), prefix)
 }
 
+// InStdlib reports whether importPath is a standard-library package. Without
+// the loader's answer it falls back to "the first path element has no dot".
+func (p *Pass) InStdlib(importPath string) bool {
+	if p != nil && p.IsStdlib != nil {
+		return p.IsStdlib(importPath)
+	}
+	first, _, _ := strings.Cut(importPath, "/")
+	return !strings.Contains(first, ".")
+}
+
 // HasLineAnnotation is HasLineAnnotation with a per-pass cache, so each file's
 // comments are indexed once instead of once per finding.
 func (p *Pass) HasLineAnnotation(file *ast.File, pos token.Pos, prefix string) bool {

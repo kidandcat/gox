@@ -17,7 +17,7 @@ bad.go:158:6: httptimeout: http.Client variable has zero Timeout
 bad.go:160:6: httptimeout: new(http.Client) has zero Timeout
 bad.go:164:7: httptimeout: http.Server constructed without ReadHeaderTimeout and WriteTimeout
 bad.go:182:6: contextcheck: context.Background()/TODO() inside a function that already receives a context
-bad.go:191:2: goroutine: goroutine spawned without a visible *errgroup.Group, sync.WaitGroup, or CancelFunc in scope
+bad.go:191:2: goroutine: goroutine does not use an *errgroup.Group, sync.WaitGroup, CancelFunc, or cancellable context
 bad.go:203:13: errorlint: comparison of error values with == / != breaks under wrapping
 bad.go:215:7: errorlint: type assertion on an error value breaks under wrapping
 bad.go:215:7: forcetypeassert: type assertion without comma-ok will panic on mismatch

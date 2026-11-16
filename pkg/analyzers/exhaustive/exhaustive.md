@@ -36,13 +36,22 @@ case Blue:
 switch c {
 case Red:
 case Green:
-default: // exhaustive-ok: any future variant routes here on purpose
+default:
+    return fmt.Errorf("unsupported color %d", c) // handles the rest on purpose
+}
+// or, for an empty default
+switch c {
+case Red:
+    paint()
+default: // exhaustive-ok: other colors need no work
 }
 ```
 
 ## Opt-out
 
-`// exhaustive-ok: <reason>` on the `default:` line marks intentional fallthrough.
+A `default:` with at least one statement counts as handling every other
+value. An empty `default:` drops them silently, like no default at all, and
+needs `// exhaustive-ok: <reason>` on the `default:` line.
 
 ## Limitations
 

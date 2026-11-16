@@ -37,5 +37,9 @@ go metrics.Flush() // goroutine-ok: best-effort fire-and-forget, app already shu
 
 ## Limitations
 
-- Scope detection is lexical: the `errgroup` / `WaitGroup` / `CancelFunc` must
-  be visible in the same function as the `go` statement.
+- The `go` statement itself must refer to the primitive: `wg` / `g` / `cancel`
+  in its call, arguments or literal body, or a `context.Context` when the
+  same function holds a `CancelFunc`. A WaitGroup that only tracks other
+  goroutines does not cover this one.
+- A context received as a parameter is not enough on its own: gox cannot
+  see whether the caller ever cancels it.

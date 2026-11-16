@@ -96,6 +96,37 @@ func _() {
 	analyzertest.AssertLines(t, analyzertest.Run(t, get(), src), []int{6})
 }
 
+func TestShadow_ifInitShadowOnlyWhenOuterReadLater(t *testing.T) {
+	const src = `package p
+func mayFail() (int, error) { return 0, nil }
+func _() error {
+	n, err := mayFail()
+	if err != nil {
+		return err
+	}
+	if _, err := mayFail(); err != nil {
+		return err
+	}
+	switch _, err := mayFail(); {
+	case err != nil:
+		return err
+	}
+	n, err = mayFail()
+	_ = n
+	return err
+}
+func _() error {
+	var err error
+	if err := step(); err != nil {
+		return err
+	}
+	return err
+}
+func step() error { return nil }`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{21})
+}
+
 // get returns the registered analyzer by name.
 func get() *analyzer.Analyzer {
 	for _, a := range analyzer.All() {

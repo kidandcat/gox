@@ -22,6 +22,19 @@ this file existed are described on the
 
 ### Changed
 
+- `goroutine` no longer accepts a `go` statement because some WaitGroup,
+  errgroup or CancelFunc exists in the function: the statement itself must
+  use it (or use a context when the function holds a CancelFunc). An
+  unrelated WaitGroup used to hide `go func() { for { work() } }()`.
+- `shadow` reports a declaration in an `if`/`switch` init
+  (`if _, err := f(); err != nil`) only when the next mention of the outer
+  variable is a read. The idiomatic early-return form is quiet; on five
+  services shadow findings fell from 747 to 99.
+- `bodyclose` treats passing the response to a function outside the
+  standard library (`defer drain(resp)`) as a hand-off.
+- `exhaustive` accepts a `default:` clause with at least one statement as
+  covering the remaining values. An empty `default:` still needs
+  `// exhaustive-ok: <reason>`.
 - `*_test.go` files are no longer analyzed by default. In a sample of six
   repositories half of all findings were in tests.
 - `errcheck` accepts `_ = x.Close()`, `_ = tx.Rollback()` and

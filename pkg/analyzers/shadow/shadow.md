@@ -44,5 +44,10 @@ if ok := check(); ok { ... } // ok is exempted by name
 
 ## Limitations
 
+- A shadow in the init of an `if` or `switch` (`if _, err := f(); err != nil`)
+  is reported only when the next mention of the outer variable after that
+  statement is a read, which would see the old value. The idiomatic
+  early-return form is quiet; the Bad example above is not. Order is by
+  source position, so loops and branches are approximated.
 - The name `ok` is exempted everywhere — it's the universal comma-ok pattern
   and shadow warnings on it are pure noise.

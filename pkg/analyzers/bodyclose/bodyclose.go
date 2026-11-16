@@ -5,12 +5,14 @@
 // subordinate one), there exists a statement of the form `X.Body.Close()`
 // (optionally inside a defer), where X is the assigned identifier.
 //
-// A response that is returned directly to the caller (`return resp, err`)
-// is treated as handed off: closing it becomes the caller's job.
+// A response that is returned directly to the caller (`return resp, err`),
+// or passed as-is to a function outside the standard library
+// (`defer drain(resp)`), is treated as handed off: closing it becomes that
+// code's job.
 //
-// Heuristic, not sound. A response that escapes through a function call or
-// struct field (e.g. `defer closeBody(resp)`) is still reported; annotate
-// those sites with `// safe-ignore: <reason>`.
+// Heuristic, not sound. A response that escapes through a struct field or
+// another variable is still reported; annotate those sites with
+// `// safe-ignore: <reason>`.
 package bodyclose
 
 import (
@@ -125,12 +127,13 @@ func checkBlock(pass *analyzer.Pass, file *ast.File, body *ast.BlockStmt) {
 	// shadowed `resp` in an inner block cannot close the outer one.
 	closed := closedResponses(pass, body)
 	returned := returnedResponses(pass, body)
+	passed := passedResponses(pass, body)
 	for _, b := range binds {
 		if pass.HasLineAnnotation(file, b.ident.Pos(), analyzer.AnnSafeIgnore) {
 			continue
 		}
 		obj := pass.TypesInfo.ObjectOf(b.ident)
-		if obj != nil && (closed[obj] || returned[obj]) {
+		if obj != nil && (closed[obj] || returned[obj] || passed[obj]) {
 			continue
 		}
 		pass.Report(analyzer.Issue{
@@ -185,6 +188,55 @@ func closedResponses(pass *analyzer.Pass, body *ast.BlockStmt) map[types.Object]
 		return true
 	})
 	return out
+}
+
+// passedResponses collects objects passed as-is to a function outside the
+// standard library (a helper such as drain(resp) or closeBody(resp)),
+// including calls inside nested function literals. Stdlib calls such as
+// fmt.Println(resp) do not close the body and do not count.
+func passedResponses(pass *analyzer.Pass, body *ast.BlockStmt) map[types.Object]bool {
+	out := map[types.Object]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !handsOff(pass, call) {
+			return true
+		}
+		for _, a := range call.Args {
+			id, ok := ast.Unparen(a).(*ast.Ident)
+			if !ok {
+				continue
+			}
+			if obj := pass.TypesInfo.ObjectOf(id); obj != nil && isHTTPResponsePointer(obj.Type()) {
+				out[obj] = true
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// handsOff reports whether call targets code that may close a response it
+// receives: a function or method outside the standard library, or a func
+// value whose body gox cannot see.
+func handsOff(pass *analyzer.Pass, call *ast.CallExpr) bool {
+	var id *ast.Ident
+	switch f := ast.Unparen(call.Fun).(type) {
+	case *ast.Ident:
+		id = f
+	case *ast.SelectorExpr:
+		id = f.Sel
+	case *ast.FuncLit:
+		return true
+	default:
+		return false
+	}
+	switch obj := pass.TypesInfo.ObjectOf(id).(type) {
+	case *types.Func:
+		return obj.Pkg() != nil && !pass.InStdlib(obj.Pkg().Path())
+	case *types.Var:
+		return true
+	}
+	return false
 }
 
 // returnedResponses collects objects returned as-is from the function that

@@ -17,32 +17,63 @@ func _() {
 	analyzertest.AssertLines(t, issues, []int{4})
 }
 
-func TestGoroutine_waitGroupInScope(t *testing.T) {
+func TestGoroutine_unrelatedWaitGroupDoesNotSilence(t *testing.T) {
 	const src = `package p
 import (
 	"fmt"
 	"sync"
 )
+func work() {}
 func _() {
 	var wg sync.WaitGroup
-	_ = wg
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+	}()
+	go func() {
+		for {
+			work()
+		}
+	}()
+	wg.Wait()
 	go fmt.Println("hi")
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{13, 19})
+}
+
+func TestGoroutine_boundGoroutinesAccepted(t *testing.T) {
+	const src = `package p
+import (
+	"context"
+	"sync"
+)
+func worker(ctx context.Context, wg *sync.WaitGroup) {}
+func loop(ctx context.Context) {}
+func _(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go worker(ctx, &wg)
+	wg.Wait()
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go loop(cctx)
+	go func() {
+		<-cctx.Done()
+	}()
 }`
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func TestGoroutine_cancelFuncInScope(t *testing.T) {
+func TestGoroutine_contextWithoutCancelFires(t *testing.T) {
 	const src = `package p
-import (
-	"context"
-	"fmt"
-)
-func _() {
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go fmt.Println("hi")
+import "context"
+func loop(ctx context.Context) {}
+func _(ctx context.Context) {
+	go loop(ctx)
 }`
-	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{5})
 }
 
 func TestGoroutine_annotationSuppresses(t *testing.T) {

@@ -87,8 +87,8 @@ Bug tier (default):
 |---|---|
 | `errcheck` | dropped `error` results, including concrete types that implement `error` (cleanup in `_ =` form, `rows.Close()` and `resp.Body.Close()` accepted) |
 | `forcetypeassert` | `x := v.(T)` without the comma-ok form |
-| `exhaustive` | non-exhaustive switch on an integer enum in this module, or on a sealed interface |
-| `bodyclose` | `*http.Response.Body` left unclosed |
+| `exhaustive` | non-exhaustive switch on an integer enum in this module, or on a sealed interface (a `default:` with statements covers the rest) |
+| `bodyclose` | `*http.Response.Body` left unclosed (returning it or passing it to your own helper hands it off) |
 | `contextcheck` | `context.Background()`/`TODO()`, or a call with a `...Context` twin (`db.Query`, `http.NewRequest`, `exec.Command`, ...), inside a function that has a `context.Context` or `*http.Request` |
 | `errorlint` | `==` / type-assert / `%s`/`%v` (including `%[n]v` and `*`) on errors instead of `errors.Is` / `errors.As` / `%w` |
 | `httptimeout` | HTTP shortcut calls, `http.ListenAndServe` / `Serve` (and TLS variants), zero-Timeout `http.Client`, or `http.Server` missing `ReadHeaderTimeout`/`WriteTimeout` |
@@ -112,10 +112,10 @@ Style tier (opt-in, `--all`):
 
 | Analyzer | What it catches |
 |---|---|
-| `shadow` | `:=` re-declaring an outer variable (except `ok`) |
+| `shadow` | `:=` re-declaring an outer variable (except `ok`); in an `if`/`switch` init only when the outer value is read next |
 | `noglobals` | mutable package-level `var` declarations |
 | `banany` | `any` / `interface{}` in declarations without justification |
-| `goroutine` | `go f()` without a visible `*errgroup.Group`, `sync.WaitGroup`, or `context.CancelFunc` |
+| `goroutine` | `go` statement that does not use an `*errgroup.Group`, `sync.WaitGroup`, `context.CancelFunc`, or a context the function can cancel |
 
 ## Annotations
 

@@ -39,7 +39,8 @@ resp, _ := client.Do(req) // safe-ignore: probe — body content discarded by tr
   variable (the same `types.Object`, so a shadowed `resp` does not close the
   outer one) somewhere in the enclosing function, including inside a nested
   function literal. A response returned as-is to the caller
-  (`return resp, err`) is treated as handed off. If the response escapes
-  through a struct field, a different variable (`r := resp`), or another
-  function call (e.g. `defer closeBody(resp)`), the rule still reports it —
-  annotate with `// safe-ignore: <reason>`.
+  (`return resp, err`) or passed as-is to a function outside the standard
+  library (`defer closeBody(resp)`, `drain(resp)`) is treated as handed off;
+  gox does not check that the helper really closes it. If the response
+  escapes through a struct field or a different variable (`r := resp`), the
+  rule still reports it — annotate with `// safe-ignore: <reason>`.
