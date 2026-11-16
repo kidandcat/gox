@@ -9,8 +9,17 @@
 //	x := foo()         // foo returns (T, error), error component discarded
 //	_ = foo()          // explicit blank without // safe-ignore: annotation
 //
-// `defer f.Close()` is flagged, not allowlisted. Close can fail (flush,
-// short write, filesystem error). Handle it in a closure or annotate:
+// An explicit blank is accepted without annotation for cleanup calls
+// (`_ = rows.Close()`, `_ = tx.Rollback()`, `_ = os.Remove(tmp)`) and for the
+// calls whose error is documented to be nil (bytes.Buffer, strings.Builder,
+// hash.Hash writes, crypto/rand.Read, fmt.Print*). Writing `_ =` there is
+// already the statement that the error does not matter.
+//
+// Closing what was only read is allowlisted in every form: `rows.Close()` on
+// *sql.Rows (failures surface through rows.Err) and `resp.Body.Close()`.
+//
+// Any other `defer f.Close()` is flagged. Close can fail (flush, short write,
+// filesystem error). Handle it in a closure or annotate:
 //
 //	defer f.Close() // safe-ignore: read-only file
 //
@@ -109,7 +118,7 @@ func checkAssign(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt) {
 		// single return value: handled if LHS is blank
 		if len(as.Lhs) == 1 {
 			if id, ok := as.Lhs[0].(*ast.Ident); ok && id.Name == "_" && isErrorType(tv.Type) {
-				maybeReportBlankErr(pass, file, as, callee(pass, call))
+				maybeReportBlankErr(pass, file, as, call)
 			}
 		}
 		return
@@ -125,14 +134,18 @@ func checkAssign(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt) {
 		if !ok || id.Name != "_" {
 			continue
 		}
-		maybeReportBlankErr(pass, file, as, callee(pass, call))
+		maybeReportBlankErr(pass, file, as, call)
 	}
 }
 
-func maybeReportBlankErr(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt, name string) {
+func maybeReportBlankErr(pass *analyzer.Pass, file *ast.File, as *ast.AssignStmt, call *ast.CallExpr) {
+	if isBuiltinAllowedToDropErr(pass, call) || isCleanupCall(pass, call) {
+		return
+	}
 	if pass.HasLineAnnotation(file, as.End(), analyzer.AnnSafeIgnore) {
 		return
 	}
+	name := callee(pass, call)
 	pass.Report(analyzer.Issue{
 		Analyzer: "errcheck",
 		Pos:      pass.Fset.Position(as.Pos()),
@@ -205,14 +218,24 @@ func isBuiltinAllowedToDropErr(pass *analyzer.Pass, call *ast.CallExpr) bool {
 	if pkgIdent, ok := sel.X.(*ast.Ident); ok {
 		if obj := pass.TypesInfo.Uses[pkgIdent]; obj != nil {
 			if pn, ok := obj.(*types.PkgName); ok {
-				if pn.Imported().Path() == "fmt" {
+				switch pn.Imported().Path() {
+				case "fmt":
 					switch sel.Sel.Name {
 					case "Print", "Printf", "Println", "Fprint", "Fprintf", "Fprintln":
+						return true
+					}
+				case "crypto/rand":
+					// Since Go 1.24 rand.Read never returns an error; it
+					// crashes the program instead.
+					if sel.Sel.Name == "Read" {
 						return true
 					}
 				}
 			}
 		}
+	}
+	if isResponseBodyClose(pass, sel) {
+		return true
 	}
 	// Method calls on documented-nil-error stdlib types.
 	recvType := pass.TypesInfo.TypeOf(sel.X)
@@ -254,6 +277,57 @@ func isBuiltinAllowedToDropErr(pass *analyzer.Pass, call *ast.CallExpr) bool {
 		if method == "Write" {
 			return true
 		}
+	case "database/sql":
+		// rows.Close only releases the connection; a failed iteration is
+		// reported by rows.Err, which the rowserr rule checks.
+		if typeName == "Rows" && method == "Close" {
+			return true
+		}
+	}
+	return false
+}
+
+// isResponseBodyClose matches resp.Body.Close() on an *http.Response or
+// *http.Request: the body was only read, so a close error carries nothing the
+// caller can act on.
+func isResponseBodyClose(pass *analyzer.Pass, sel *ast.SelectorExpr) bool {
+	if sel.Sel.Name != "Close" {
+		return false
+	}
+	body, ok := sel.X.(*ast.SelectorExpr)
+	if !ok || body.Sel.Name != "Body" {
+		return false
+	}
+	t := pass.TypesInfo.TypeOf(body.X)
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok || named.Obj().Pkg() == nil || named.Obj().Pkg().Path() != "net/http" {
+		return false
+	}
+	return named.Obj().Name() == "Response" || named.Obj().Name() == "Request"
+}
+
+// isCleanupCall reports whether call releases a resource: a Close or Rollback
+// method, or os.Remove/os.RemoveAll. Their errors are routinely discarded on
+// error paths and in defers; an explicit `_ =` is enough of a statement.
+func isCleanupCall(pass *analyzer.Pass, call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if pkgIdent, ok := sel.X.(*ast.Ident); ok {
+		if pn, ok := pass.TypesInfo.Uses[pkgIdent].(*types.PkgName); ok {
+			return pn.Imported().Path() == "os" && (sel.Sel.Name == "Remove" || sel.Sel.Name == "RemoveAll")
+		}
+	}
+	if pass.TypesInfo.Selections[sel] == nil {
+		return false
+	}
+	switch sel.Sel.Name {
+	case "Close", "Rollback":
+		return len(call.Args) == 0
 	}
 	return false
 }

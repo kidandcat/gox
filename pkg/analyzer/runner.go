@@ -24,6 +24,10 @@ type RunOptions struct {
 	// Workers caps the number of packages processed in parallel. Zero means
 	// runtime.GOMAXPROCS(0).
 	Workers int
+
+	// Tests also analyzes *_test.go files. Off by default: test code is
+	// half of the findings on real repos and almost none of them matter.
+	Tests bool
 }
 
 // Stats reports cache hit/miss counts for a Run.
@@ -48,7 +52,7 @@ type pkgResult struct {
 // Run loads (or cache-replays) every package matched by patterns and applies
 // every registered analyzer. Packages are processed in parallel.
 func Run(patterns []string, analyzers []*Analyzer, opts RunOptions) ([]Issue, Stats, error) {
-	infos, pkgErrs, listErr := loader.ListWithErrors(patterns...)
+	infos, pkgErrs, listErr := loader.ListWithOptions(loader.ListOptions{Tests: opts.Tests}, patterns...)
 	if listErr != nil {
 		return nil, Stats{}, listErr
 	}

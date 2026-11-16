@@ -1,198 +1,153 @@
 package namedargs_test
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kidandcat/gox/pkg/analyzer"
 	"github.com/kidandcat/gox/pkg/analyzer/analyzertest"
 )
 
-func TestNamedArgs_twoStringsAdjacent(t *testing.T) {
+func TestNamedArgs_swappedIdentifiers(t *testing.T) {
 	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
+func transfer(fromID, toID string, amount int64) {}
+func _(fromID, toID string) {
+	transfer(toID, fromID, 1)
+	transfer(fromID, toID, 1)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4, 4})
+}
+
+func TestNamedArgs_swappedFieldsIgnoreCase(t *testing.T) {
+	const src = `package p
+type req struct{ FromID, ToID string }
+func transfer(fromID, toID string) {}
+func _(r req) {
+	transfer(r.ToID, r.FromID)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{5, 5})
+}
+
+func TestNamedArgs_labelNamesOtherParam(t *testing.T) {
+	const src = `package p
+func transfer(fromID, toID string) {}
+func _(a, b string) {
+	transfer( /* toID */ a, /* fromID */ b)
+	transfer(
+		/* fromID */ a,
+		/* toID */ b,
+	)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4, 4})
+}
+
+func TestNamedArgs_gofmtRelocatedLabelIsFine(t *testing.T) {
+	// gofmt turns transfer(/* fromID */ a, /* toID */ b) into this form.
+	const src = `package p
+func transfer(fromID, toID string) {}
+func _(a, b string) {
+	transfer( /* fromID */ a /* toID */, b)
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestNamedArgs_unrelatedNamesAndLiterals(t *testing.T) {
+	const src = `package p
+func transfer(fromID, toID string) {}
+func _(src, dst string) {
+	transfer(src, dst)
 	transfer("u-1", "o-2")
 }`
-	issues := analyzertest.Run(t, get(), src)
-	// Both args are flagged because they're adjacent same-type without comments.
-	if len(issues) != 2 {
-		t.Fatalf("got %d issues, want 2", len(issues))
-	}
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func TestNamedArgs_ownLineCommentsSatisfy(t *testing.T) {
-	// The gofmt-stable form: each labelled argument on its own line.
+func TestNamedArgs_notAssignableIsNotASwap(t *testing.T) {
 	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer(
-		/* userID */ "u-1",
-		/* orderID */ "o-2",
-	)
+type ID string
+func link(name string, id ID) {}
+func _(id string, name ID) {
+	link(id, name)
 }`
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func TestNamedArgs_firstArgSharesLparenLineSatisfies(t *testing.T) {
-	// gofmt fixed point too: the first argument may sit on the opening-paren
-	// line because it has no predecessor whose label gofmt could relocate.
+func TestNamedArgs_oneLetterNamesIgnored(t *testing.T) {
 	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer( /* userID */ "u-1",
-		/* orderID */ "o-2",
-	)
-}`
+func less(i, j int) bool { return i < j }
+func _(i, j int) bool { return less(j, i) }`
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func TestNamedArgs_singleLineMangledIsFlagged(t *testing.T) {
-	// The shape gofmt produces from a single-line labelled call. The relocated
-	// /* orderID */ comment used to satisfy the rule silently; it must now fire
-	// on the second argument (the first argument's label is still stable).
-	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer( /* userID */ "u-1" /* orderID */, "o-2")
-}`
-	issues := analyzertest.Run(t, get(), src)
-	if len(issues) != 1 {
-		t.Fatalf("got %d issues, want 1 (the relocated label must be flagged)", len(issues))
-	}
-}
-
-func TestNamedArgs_singleLineCorrectPlacementIsFlagged(t *testing.T) {
-	// Even a correctly-placed single-line label is not a gofmt fixed point —
-	// gofmt would relocate it — so it must be flagged before that happens.
-	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer( /* userID */ "u-1", /* orderID */ "o-2")
-}`
-	issues := analyzertest.Run(t, get(), src)
-	if len(issues) != 1 {
-		t.Fatalf("got %d issues, want 1 (single-line label is not gofmt-stable)", len(issues))
-	}
-}
-
-func TestNamedArgs_identNameMatchesParam(t *testing.T) {
-	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	var userID, orderID string
-	transfer(userID, orderID)
-}`
-	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
-}
-
-func TestNamedArgs_distinctTypesIsFine(t *testing.T) {
-	const src = `package p
-func open(path string, perm int) {}
-func _() {
-	open("/x", 644)
-}`
-	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
-}
-
-func TestNamedArgs_stdlibCalleeExempt(t *testing.T) {
+func TestNamedArgs_stdlibSwapIsCaught(t *testing.T) {
 	const src = `package p
 import "strings"
-func _() {
-	_ = strings.HasPrefix("hello world", "hello")
+func _(s, old, new string) string {
+	return strings.Replace(s, new, old, -1)
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{4, 4})
+}
+
+func TestNamedArgs_variadicTailIgnored(t *testing.T) {
+	const src = `package p
+func join(sep string, parts ...string) string { return sep }
+func _(sep, parts string) {
+	_ = join(sep, parts, sep)
 }`
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func TestNamedArgs_safeIgnoreSameLine(t *testing.T) {
+func TestNamedArgs_safeIgnore(t *testing.T) {
 	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer("u-1", "o-2") // safe-ignore: positional args fixed by call site
-}`
-	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
-}
-
-func TestNamedArgs_safeIgnoreOnClosingLine(t *testing.T) {
-	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer(
-		"u-1",
-		"o-2",
-	) // safe-ignore: positional args fixed by call site
+func transfer(fromID, toID string) {}
+func _(fromID, toID string) {
+	transfer(toID, fromID) // safe-ignore: refund goes back the other way
 }`
 	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
 func TestNamedArgs_safeIgnoreWithoutReasonStillFires(t *testing.T) {
 	const src = `package p
-func transfer(userID, orderID string) {}
-func _() {
-	transfer("u-1", "o-2") // safe-ignore:
+func transfer(fromID, toID string) {}
+func _(fromID, toID string) {
+	transfer(toID, fromID) // safe-ignore:
 }`
 	issues := analyzertest.Run(t, get(), src)
-	if len(issues) != 2 {
-		t.Fatalf("got %d issues, want 2 (bare safe-ignore must not suppress)", len(issues))
-	}
+	analyzertest.AssertLines(t, issues, []int{4, 4})
 }
 
-// A dotless module path used to look like the standard library, so calls in
-// `module myapp` were silently exempt. go list's Standard field is the
-// authority; strings.HasPrefix stays exempt.
-func TestNamedArgs_dotlessModuleIsNotStdlib(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t,
-		/* path */ filepath.Join(dir, "go.mod"),
-		/* body */ "module myapp\n\ngo 1.26.8\n",
-	)
-	writeFile(t,
-		/* path */ filepath.Join(dir, "p", "p.go"),
-		/* body */ `package p
-
-import "strings"
-
-func transfer(from, to string) {}
-
-func use(a, b string) bool {
-	transfer(a, b)
-	return strings.HasPrefix(a, b)
-}
-`)
-	t.Chdir(dir)
-	issues, stats, err := analyzer.Run([]string{"./..."}, []*analyzer.Analyzer{get()}, analyzer.RunOptions{})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if stats.LoadErrors != 0 {
-		t.Fatalf("load errors: %d", stats.LoadErrors)
-	}
-	if len(issues) != 2 {
-		for _, is := range issues {
-			t.Logf("%s:%d: %s", is.Pos.Filename, is.Pos.Line, is.Message)
-		}
-		t.Fatalf("got %d issues, want 2 on transfer and none on HasPrefix", len(issues))
-	}
-	for _, is := range issues {
-		if !strings.HasSuffix(is.Pos.Filename, filepath.Join("p", "p.go")) {
-			t.Fatalf("issue file %s", is.Pos.Filename)
-		}
-		if is.Pos.Line != 8 {
-			t.Fatalf("issue line %d, want the transfer call", is.Pos.Line)
-		}
-	}
+func TestNamedArgs_labelOnlyCoversItsOwnArgument(t *testing.T) {
+	const src = `package p
+type act struct{ ID string }
+func setResult(id, status, result string) {}
+func _(a act, status, result string) {
+	setResult( /* id */ a.ID, status, result)
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
-func writeFile(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestNamedArgs_gofmtRelocatedLabelsInLongCall(t *testing.T) {
+	const src = `package p
+func createUser(email, phone, password, fullName string) {}
+func _(email, password string) {
+	createUser( /* email */ email /* phone */, "" /* password */, password /* fullName */, "Admin")
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
+func TestNamedArgs_oneSidedNameMatchIsNotASwap(t *testing.T) {
+	// "role" passed as "primary" next to a "role" parameter, and the same
+	// value passed twice: neither is a crossed pair.
+	const src = `package p
+func holds(primary, role string) bool { return primary == role }
+func dayOf(clientTS, serverTS int64) int64 { return clientTS }
+func _(role, admin string, serverTS int64) {
+	_ = holds(role, admin)
+	_ = dayOf(serverTS, serverTS)
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
 }
 
 func get() *analyzer.Analyzer {

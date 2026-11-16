@@ -35,15 +35,24 @@ import (
 	_ "github.com/kidandcat/gox/pkg/analyzers/banany"
 	_ "github.com/kidandcat/gox/pkg/analyzers/bodyclose"
 	_ "github.com/kidandcat/gox/pkg/analyzers/contextcheck"
+	_ "github.com/kidandcat/gox/pkg/analyzers/copylock"
+	_ "github.com/kidandcat/gox/pkg/analyzers/deferclose"
 	_ "github.com/kidandcat/gox/pkg/analyzers/errcheck"
 	_ "github.com/kidandcat/gox/pkg/analyzers/errorlint"
 	_ "github.com/kidandcat/gox/pkg/analyzers/exhaustive"
 	_ "github.com/kidandcat/gox/pkg/analyzers/forcetypeassert"
 	_ "github.com/kidandcat/gox/pkg/analyzers/goroutine"
 	_ "github.com/kidandcat/gox/pkg/analyzers/httptimeout"
+	_ "github.com/kidandcat/gox/pkg/analyzers/lostcancel"
 	_ "github.com/kidandcat/gox/pkg/analyzers/namedargs"
+	_ "github.com/kidandcat/gox/pkg/analyzers/nilerr"
+	_ "github.com/kidandcat/gox/pkg/analyzers/nilmap"
 	_ "github.com/kidandcat/gox/pkg/analyzers/noglobals"
+	_ "github.com/kidandcat/gox/pkg/analyzers/printf"
+	_ "github.com/kidandcat/gox/pkg/analyzers/rowserr"
 	_ "github.com/kidandcat/gox/pkg/analyzers/shadow"
+	_ "github.com/kidandcat/gox/pkg/analyzers/unusedresult"
+	_ "github.com/kidandcat/gox/pkg/analyzers/waitgroup"
 )
 
 func main() {
@@ -134,6 +143,7 @@ func runCheck(args []string) int {
 	skip := fs.String("skip", os.Getenv("GOX_SKIP"), "comma-separated analyzer names to skip (env: GOX_SKIP)")
 	all := fs.Bool("all", os.Getenv("GOX_ALL") == "1", "also run the opt-in style-tier analyzers (env: GOX_ALL=1)")
 	asJSON := fs.Bool("json", false, "print issues as one JSON object on stdout")
+	tests := fs.Bool("tests", os.Getenv("GOX_TESTS") == "1", "also analyze *_test.go files (env: GOX_TESTS=1)")
 	if parseErr := fs.Parse(args); parseErr != nil {
 		return 2
 	}
@@ -149,7 +159,7 @@ func runCheck(args []string) int {
 		return 2
 	}
 
-	issues, runStats, elapsed, runErr := runAnalyzers(patterns, analyzers, *noCache)
+	issues, runStats, elapsed, runErr := runAnalyzers(patterns, analyzers, *noCache, *tests)
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "gox:", runErr)
 		return 2
@@ -275,8 +285,8 @@ func selectAnalyzers(all bool, skip string) ([]*analyzer.Analyzer, error) {
 
 // runAnalyzers wires the cache and runs the analyzers — shared by `check`
 // and `baseline`.
-func runAnalyzers(patterns []string, analyzers []*analyzer.Analyzer, noCache bool) ([]analyzer.Issue, analyzer.Stats, time.Duration, error) {
-	opts := analyzer.RunOptions{UseCache: !noCache}
+func runAnalyzers(patterns []string, analyzers []*analyzer.Analyzer, noCache, tests bool) ([]analyzer.Issue, analyzer.Stats, time.Duration, error) {
+	opts := analyzer.RunOptions{UseCache: !noCache, Tests: tests}
 
 	if opts.UseCache {
 		dir, dirErr := cache.Dir()
@@ -344,9 +354,10 @@ func runBaseline(args []string) int {
 		return 2
 	}
 
-	// Baselines always capture with the full analyzer set so a later
-	// `check --skip=...` still filters against a complete snapshot.
-	issues, runStats, _, runErr := runAnalyzers(patterns, analyzer.All(), *noCache)
+	// Baselines always capture with the full analyzer set and the test files
+	// so a later `check --skip=...` or `check --tests` still filters against
+	// a complete snapshot.
+	issues, runStats, _, runErr := runAnalyzers(patterns, analyzer.All(), *noCache, true)
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "gox baseline:", runErr)
 		return 2

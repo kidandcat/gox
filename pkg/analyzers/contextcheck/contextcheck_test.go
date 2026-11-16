@@ -107,3 +107,58 @@ func get() *analyzer.Analyzer {
 	}
 	panic("contextcheck analyzer not registered")
 }
+
+func TestContextCheck_noCtxCallsWithCtxAvailable(t *testing.T) {
+	const src = `package p
+import (
+	"context"
+	"database/sql"
+	"net/http"
+	"os/exec"
+)
+func _(ctx context.Context, db *sql.DB, c *http.Client) {
+	_, _ = db.Exec("x")
+	_, _ = db.ExecContext(ctx, "x")
+	_ = db.QueryRow("x")
+	_, _ = http.NewRequest("GET", "u", nil)
+	_, _ = http.NewRequestWithContext(ctx, "GET", "u", nil)
+	_, _ = c.Get("u")
+	_ = exec.Command("ls")
+	_ = exec.CommandContext(ctx, "ls")
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{9, 11, 12, 14, 15})
+}
+
+func TestContextCheck_httpHandlerHasContext(t *testing.T) {
+	const src = `package p
+import (
+	"database/sql"
+	"net/http"
+)
+func handler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, _ = db.Exec("x")
+	}
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{8})
+}
+
+func TestContextCheck_noCtxCallsOutsideCtxFnOrInGoroutine(t *testing.T) {
+	const src = `package p
+import (
+	"context"
+	"database/sql"
+)
+func a(db *sql.DB) {
+	_, _ = db.Exec("x")
+}
+func b(ctx context.Context, db *sql.DB) {
+	go func() {
+		_, _ = db.Exec("detached")
+	}()
+	_, _ = db.Exec("y") // safe-ignore: must finish even if ctx is cancelled
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}

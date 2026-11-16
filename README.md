@@ -50,6 +50,9 @@ gox baseline [pkgs]    # snapshot current issues into .gox-baseline.json
 gox cache clean        # delete the on-disk analysis cache
 ```
 
+`*_test.go` files are skipped by default; `--tests` (env: `GOX_TESTS=1`)
+includes them.
+
 Other `check` flags: `--no-cache` (bypass the incremental cache),
 `--no-baseline` (report baselined issues too), `--stats` (cache hits/misses
 and elapsed time on stderr), `--max-issues=N` (see [Output cap](#output-cap)),
@@ -82,20 +85,34 @@ Bug tier (default):
 
 | Analyzer | What it catches |
 |---|---|
-| `errcheck` | dropped `error` results, including concrete types that implement `error` |
+| `errcheck` | dropped `error` results, including concrete types that implement `error` (cleanup in `_ =` form, `rows.Close()` and `resp.Body.Close()` accepted) |
 | `forcetypeassert` | `x := v.(T)` without the comma-ok form |
 | `exhaustive` | non-exhaustive switch on an integer enum in this module, or on a sealed interface |
 | `bodyclose` | `*http.Response.Body` left unclosed |
-| `contextcheck` | `context.Background()`/`TODO()` inside a function or function literal that already receives a `context.Context` |
+| `contextcheck` | `context.Background()`/`TODO()`, or a call with a `...Context` twin (`db.Query`, `http.NewRequest`, `exec.Command`, ...), inside a function that has a `context.Context` or `*http.Request` |
 | `errorlint` | `==` / type-assert / `%s`/`%v` (including `%[n]v` and `*`) on errors instead of `errors.Is` / `errors.As` / `%w` |
 | `httptimeout` | HTTP shortcut calls, `http.ListenAndServe` / `Serve` (and TLS variants), zero-Timeout `http.Client`, or `http.Server` missing `ReadHeaderTimeout`/`WriteTimeout` |
+| `namedargs` | arguments that look swapped: named after another parameter of the callee (`transfer(toID, fromID)`), or labelled `/* name */` with another parameter's name |
+| `deferclose` | `defer x.Close()` before the error from the call that returned `x` is checked (staticcheck SA5001) |
+| `lostcancel` | cancel func from `context.WithCancel`/`WithTimeout`/`WithDeadline` discarded or never used (vet lostcancel) |
+| `waitgroup` | `wg.Add` inside the goroutine it counts (vet waitgroup) |
+| `copylock` | values holding a `sync.Mutex`, `WaitGroup`, atomic, ... copied by value (vet copylocks) |
+| `nilerr` | `return ..., nil` inside `if err != nil` without using `err` (nilerr) |
+| `rowserr` | `*sql.Rows` loop without `rows.Err()` (rowserrcheck) |
+| `unusedresult` | result of `fmt.Sprintf`, `errors.New`, `strings.*`, `context.With*` discarded (vet unusedresult, SA4017) |
+| `nilmap` | write to a `var m map[K]V` that is never initialised (staticcheck SA5000) |
+| `printf` | printf verbs that do not match the argument count, `%w` outside `fmt.Errorf` (vet printf) |
+
+The rules marked with a vet / staticcheck / golangci-lint name port the
+checks those tools do well to plain AST + `go/types`: no SSA, no facts across
+packages, so they stay inside gox's sub-second budget. Their limitations are
+listed in `gox explain <rule>`.
 
 Style tier (opt-in, `--all`):
 
 | Analyzer | What it catches |
 |---|---|
 | `shadow` | `:=` re-declaring an outer variable (except `ok`) |
-| `namedargs` | call sites passing 2+ args of the same basic type without `/* paramName */` comments (user code only — stdlib calls exempt, including inside a dotless module) |
 | `noglobals` | mutable package-level `var` declarations |
 | `banany` | `any` / `interface{}` in declarations without justification |
 | `goroutine` | `go f()` without a visible `*errgroup.Group`, `sync.WaitGroup`, or `context.CancelFunc` |
@@ -107,7 +124,7 @@ after the colon — empty reasons are ignored.
 
 | Comment | Effect |
 |---|---|
-| `// safe-ignore: <why>` | Suppress `errcheck`, `forcetypeassert`, `bodyclose`, `contextcheck`, `errorlint`, `shadow`, `namedargs` on the same line |
+| `// safe-ignore: <why>` | Suppress `errcheck`, `forcetypeassert`, `bodyclose`, `contextcheck`, `errorlint`, `shadow`, `namedargs`, `deferclose`, `lostcancel`, `waitgroup`, `copylock`, `nilerr`, `rowserr`, `unusedresult`, `nilmap`, `printf` on the same line |
 | `// global-ok: <why>` | Allow a package-level `var` (`noglobals`) |
 | `// any-ok: <why>` | Allow `any` / `interface{}` (`banany`) |
 | `// goroutine-ok: <why>` | Allow a fire-and-forget `go` statement (`goroutine`) |
@@ -201,6 +218,11 @@ On a 442-package monorepo (~1800 .go files):
 | Cold run (no cache) | ~9.4s |
 | Warm run (full cache hit) | ~2.6s |
 
+On five production services (single modules, all 21 rules, tests skipped),
+a cold `gox check ./...` takes 0.4–0.6s and a warm one 0.3–0.4s. On the same
+modules a cold `staticcheck` took 2.6–5.2s and a cold `golangci-lint run`
+6–10s; both drop under 1s once their own cache is warm.
+
 The cache is per-package, keyed by file mtime+size, the export data of
 every dependency (so editing a callee's signature re-checks its callers),
 the analyzer set, and the gox build itself (upgrading or rebuilding gox
@@ -241,7 +263,7 @@ Concrete differences:
 | **Opt-out** | one annotation with a written reason on the same line | regex/path config files |
 | **Dependencies** | none — only Go stdlib + `go list` | hundreds of transitive deps via `golang.org/x/tools` |
 | **Audience** | code written by LLM agents (Claude Code, Cursor, etc.) | humans, optionally CI |
-| **Coverage** | 12 rules, picked for high signal in unsupervised codegen | hundreds of rules; you pick the subset |
+| **Coverage** | 21 rules, picked for high signal in unsupervised codegen | hundreds of rules; you pick the subset |
 | **Ergonomics** | `gox install claude` / `gox install grok` wires it into the LLM's tool loop | manual config + `pre-commit` / CI plumbing |
 
 The bug that motivated gox is the swap-prone call site:

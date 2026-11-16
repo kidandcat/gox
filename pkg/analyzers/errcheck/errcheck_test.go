@@ -149,6 +149,48 @@ func _() { validate() }`
 	}
 }
 
+func TestErrcheck_blankCleanupAccepted(t *testing.T) {
+	const src = `package p
+import (
+	"database/sql"
+	"os"
+)
+func _(rows *sql.Rows, tx *sql.Tx, f *os.File) {
+	_ = rows.Close()
+	_ = tx.Rollback()
+	_ = os.Remove("x")
+	_ = os.RemoveAll("y")
+	defer func() { _ = f.Close() }()
+	_ = tx.Commit()
+	tx.Rollback()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{12, 13})
+}
+
+func TestErrcheck_blankAllowlistMatchesBareForm(t *testing.T) {
+	const src = `package p
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"strings"
+)
+func _(w io.Writer, b []byte) {
+	mac := hmac.New(sha256.New, b)
+	mac.Write(b)
+	_, _ = mac.Write(b)
+	var sb strings.Builder
+	_, _ = sb.WriteString("a")
+	_, _ = fmt.Fprintln(w, "x")
+	rand.Read(b)
+	_, _ = rand.Read(b)
+}`
+	analyzertest.AssertNone(t, analyzertest.Run(t, get(), src))
+}
+
 func get() *analyzer.Analyzer {
 	for _, a := range analyzer.All() {
 		if a.Name == "errcheck" {
@@ -156,4 +198,28 @@ func get() *analyzer.Analyzer {
 		}
 	}
 	panic("errcheck analyzer not registered")
+}
+
+func TestErrcheck_readSideClosesAccepted(t *testing.T) {
+	const src = `package p
+import (
+	"database/sql"
+	"net/http"
+	"os"
+)
+func _(db *sql.DB, f *os.File) {
+	rows, err := db.Query("select 1")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	resp, err := http.Get("http://x")
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	defer f.Close()
+}`
+	issues := analyzertest.Run(t, get(), src)
+	analyzertest.AssertLines(t, issues, []int{18})
 }

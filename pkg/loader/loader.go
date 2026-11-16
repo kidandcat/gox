@@ -185,13 +185,30 @@ func List(patterns ...string) ([]*PackageInfo, error) {
 	return infos, err
 }
 
+// ListOptions tunes ListWithOptions.
+type ListOptions struct {
+	// Tests includes the *_test.go test variants (`go list -test`).
+	Tests bool
+}
+
 // ListWithErrors is List, but returns the packages that failed to load
-// instead of printing them, so the caller can fail closed.
+// instead of printing them, so the caller can fail closed. It includes test
+// variants.
 func ListWithErrors(patterns ...string) ([]*PackageInfo, []PackageError, error) {
+	return ListWithOptions(ListOptions{Tests: true}, patterns...)
+}
+
+// ListWithOptions is ListWithErrors with control over test variants. Leaving
+// tests out also skips their type-checking, which makes the run faster.
+func ListWithOptions(opts ListOptions, patterns ...string) ([]*PackageInfo, []PackageError, error) {
 	if len(patterns) == 0 {
 		patterns = []string{"./..."}
 	}
-	args := append([]string{"list", "-json", "-e", "-export", "-compiled", "-deps", "-test"}, patterns...)
+	args := []string{"list", "-json", "-e", "-export", "-compiled", "-deps"}
+	if opts.Tests {
+		args = append(args, "-test")
+	}
+	args = append(args, patterns...)
 	// A stuck `go list` (module download, dead proxy) should fail the run
 	// instead of hanging the hook. Cold lists on large modules can take
 	// minutes; ten minutes is the ceiling, not the expected duration.

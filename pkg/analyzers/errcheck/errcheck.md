@@ -45,6 +45,21 @@ defer f.Close() // safe-ignore: read-only file
 short write, network filesystem). A reason-required annotation or an explicit
 handler in a deferred closure is the opt-out.
 
+## Accepted without annotation
+
+- An explicit `_ =` on cleanup: `_ = f.Close()`, `_ = tx.Rollback()`,
+  `_ = os.Remove(tmp)`. Writing the blank already says the error does not
+  matter.
+- Closing what was only read, in any form: `rows.Close()` on `*sql.Rows`
+  (a failed iteration shows up in `rows.Err()`, see `rowserr`) and
+  `resp.Body.Close()` on an `*http.Response` or `*http.Request`.
+- The calls listed under Limitations, also in the `_ =` form.
+
+## Test files
+
+`*_test.go` files are not analyzed by default. Pass `--tests` (or set
+`GOX_TESTS=1`) to include them.
+
 ## Limitations
 
 - A result is an error when its type implements `error` (`Error() string`).
@@ -57,5 +72,6 @@ handler in a deferred closure is the opt-out.
   exemption matches the common `fmt.Fprintf(w, ...)` idiom and keeps the bug
   tier from flooding handler code. Handle the error explicitly when it
   matters.
-- `bytes.Buffer` and `strings.Builder` writes, and `hash.Hash.Write`, are
-  exempt because their documentation says the error is always nil.
+- `bytes.Buffer` and `strings.Builder` writes, `hash.Hash.Write` and
+  `crypto/rand.Read` are exempt because their documentation says the error is
+  always nil (`crypto/rand.Read` since Go 1.24).

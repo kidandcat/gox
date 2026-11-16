@@ -7,6 +7,34 @@ this file existed are described on the
 
 ## [Unreleased]
 
+### Added
+
+- Nine rules that port the checks go vet, staticcheck and golangci-lint do
+  well, on AST + `go/types` only (no SSA), all in the default tier:
+  `deferclose` (SA5001), `lostcancel`, `waitgroup`, `copylock`, `nilerr`,
+  `rowserr`, `unusedresult`, `nilmap` (SA5000) and `printf`.
+- `contextcheck` reports calls that have a `...Context` twin
+  (`database/sql` Exec/Query/QueryRow/Prepare/Ping/Begin, `http.NewRequest`,
+  `http.Get`/`Post`/`Head`/`PostForm`, `exec.Command`, `net.Dial`) inside a
+  function that receives a context. A function with an `*http.Request`
+  parameter now counts as receiving one.
+- `gox check --tests` (env `GOX_TESTS=1`) to analyze `*_test.go` files.
+
+### Changed
+
+- `*_test.go` files are no longer analyzed by default. In a sample of six
+  repositories half of all findings were in tests.
+- `errcheck` accepts `_ = x.Close()`, `_ = tx.Rollback()` and
+  `_ = os.Remove(...)` without an annotation, applies its allowlist to the
+  `_ =` form too (it used to accept `h.Write(b)` but flag `_, _ = h.Write(b)`),
+  accepts `crypto/rand.Read`, and accepts `rows.Close()` on `*sql.Rows` and
+  `resp.Body.Close()` in any form.
+- `namedargs` is now a swap detector in the default tier. It reports an
+  argument named after another parameter when that parameter's argument is
+  named after this one (`transfer(toID, fromID)`), and a `/* name */` label
+  that names another parameter. It no longer asks for labels; stdlib calls
+  are checked too.
+
 ## [0.6.0] - 2026-10-04
 
 Module path stays `github.com/kidandcat/gox` (as in v0.5.1). Rules are

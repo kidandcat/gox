@@ -2,10 +2,15 @@ package bad
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+	"sync"
 )
 
 // every line below is engineered to trigger exactly one rule.
@@ -76,8 +81,8 @@ func goodAssert(v any) string { // any-ok: this is a deliberate boundary func
 
 func swapBug(userID, orderID string) {} // declared with two strings
 
-func callsSwap() {
-	swapBug("u-1", "o-2") // expect: namedargs (two strings adjacent, no comments)
+func callsSwap(userID, orderID string) {
+	swapBug(orderID, userID) // expect: namedargs x2 (arguments named after the other parameter)
 }
 
 func callsSwapOK() {
@@ -242,4 +247,64 @@ func validate() *customErr { return nil }
 
 func dropConcrete() {
 	validate() // expect: errcheck (concrete type implementing error)
+}
+
+func deferBeforeCheck() error {
+	f, err := os.Open("x")
+	defer f.Close() // expect: deferclose
+	return err
+}
+
+func leakCancel(ctx context.Context) context.Context {
+	ctx, _ = context.WithCancel(ctx) // expect: lostcancel
+	return ctx
+}
+
+func addInsideGoroutine(wg *sync.WaitGroup) {
+	go func() {
+		wg.Add(1) // expect: waitgroup
+		defer wg.Done()
+	}()
+}
+
+type guarded struct{ mu sync.Mutex }
+
+func (g guarded) locked() {} // expect: copylock
+
+func swallow() (int, error) {
+	_, err := os.Open("x")
+	if err != nil {
+		return 0, nil // expect: nilerr
+	}
+	return 1, nil
+}
+
+func noRowsErr(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "select 1") // expect: rowserr
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	return nil
+}
+
+func discarded(s string) {
+	strings.TrimSpace(s) // expect: unusedresult
+}
+
+func nilMapWrite() {
+	var m map[string]int
+	m["x"] = 1 // expect: nilmap
+}
+
+func badFormat(id string) {
+	log.Printf("%s %d", id) // expect: printf
+}
+
+func handlerNoCtx(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, _ = db.Exec("delete from t") // expect: contextcheck (r.Context() available)
+	}
 }
